@@ -3,7 +3,7 @@
   "build": {
     "builder": "NIXPACKS",
     "github": {
-      "repo": "Mdx2025/emailbot"
+      "repo": "Mdx2025/emailbot-backend"
     }
   },
   "deploy": {
