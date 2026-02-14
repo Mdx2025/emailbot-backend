@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.app/schema.json",
+  "name": "emailbot-backend-v2",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "node server-simple.js",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30
+  }
+}
