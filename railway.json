@@ -2,13 +2,11 @@
   "$schema": "https://railway.app/schema.json",
   "name": "emailbot-backend",
   "build": {
-    "builder": "NIXPACKS",
-    "github": {
-      "repo": "Mdx2025/emailbot-backend"
-    }
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "npm run server:simple",
+    "startCommand": "node server-simple.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30
   }
