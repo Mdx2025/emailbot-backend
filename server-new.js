@@ -97,8 +97,27 @@ function getActivity(limit = 50) {
 
 // Helper: Get metrics
 async function getMetrics() {
-  // DEBUG: Return test data to verify endpoint works
+  // DEBUG: Return test data
   console.log('[getMetrics] Starting...');
+  
+  // Return test data immediately to verify endpoint works
+  return {
+    unreadEmails: 5,
+    newLeads: 3,
+    pendingDrafts: 2,
+    urgentDrafts: 1,
+    approvedToday: 0,
+    sentToday: 1,
+    totalDrafts: 10,
+    approvalRate: 75.0,
+    unreadTrend: '+2',
+    leadsTrend: '+1 new',
+    urgentCount: 1,
+    avgDelayHours: 2.5,
+    formSubmissions: 3,
+    unreadStatus: 'Medium',
+    sparklineUnread: [3, 5, 2, 8, 4, 6, 5],
+  };
   
   const drafts = loadDrafts();
   const pending = drafts.filter(d => d.status === 'pending_review');
@@ -306,6 +325,11 @@ app.post('/api/drafts', async (req, res) => {
 // Debug endpoint
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Backend is working!', timestamp: new Date().toISOString() });
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ test: 'working', time: new Date().toISOString() });
 });
 
 app.get('/api/metrics', async (req, res) => {
