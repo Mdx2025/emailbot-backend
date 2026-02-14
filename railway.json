@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.app/schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "github": {
+      "repo": "Mdx2025/emailbot-backend"
+    }
+  },
+  "deploy": {
+    "startCommand": "node server.js",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30
+  }
+}
