@@ -302,9 +302,12 @@ app.post('/api/drafts', async (req, res) => {
 // GET /api/metrics
 app.get('/api/metrics', async (req, res) => {
   try {
+    console.log('[METRICS] Starting...');
     const metrics = await getMetrics();
+    console.log('[METRICS] Result:', JSON.stringify(metrics));
     res.json({ metrics });
   } catch (error) {
+    console.error('[METRICS] Error:', error.message);
     res.status(500).json({ error: 'Failed to fetch metrics' });
   }
 });
