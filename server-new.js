@@ -97,6 +97,9 @@ function getActivity(limit = 50) {
 
 // Helper: Get metrics
 async function getMetrics() {
+  // DEBUG: Return test data to verify endpoint works
+  console.log('[getMetrics] Starting...');
+  
   const drafts = loadDrafts();
   const pending = drafts.filter(d => d.status === 'pending_review');
   const approved = drafts.filter(d => d.status === 'approved');
