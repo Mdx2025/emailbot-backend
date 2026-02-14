@@ -17,10 +17,15 @@ class Ingestor {
    * Initialize Gmail API client with Service Account
    */
   async getGmailClient() {
-    this.logger.info('Initializing Gmail client');
+    this.logger.info('Initializing Gmail client - USING ENV VARS AUTH');
 
     // Always use credentials from env vars (GOOGLE_PRIVATE_KEY and GOOGLE_SERVICE_ACCOUNT_EMAIL)
     // Skip GOOGLE_APPLICATION_CREDENTIALS to avoid file-based auth issues in production
+    console.log('=== AUTH CHECK ===');
+    console.log('GOOGLE_SERVICE_ACCOUNT_EMAIL:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'SET' : 'NOT SET');
+    console.log('GOOGLE_PRIVATE_KEY:', process.env.GOOGLE_PRIVATE_KEY ? 'SET' : 'NOT SET');
+    console.log('GOOGLE_APPLICATION_CREDENTIALS:', process.env.GOOGLE_APPLICATION_CREDENTIALS ? 'SET' : 'NOT SET');
+    console.log('==================');
     let clientEmail = process.env.SERVICE_ACCOUNT_EMAIL || 
                        process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
                        this.config.SERVICE_ACCOUNT_EMAIL;
