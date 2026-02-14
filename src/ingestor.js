@@ -19,20 +19,8 @@ class Ingestor {
   async getGmailClient() {
     this.logger.info('Initializing Gmail client');
 
-    // Use keyFile if GOOGLE_APPLICATION_CREDENTIALS is set (recommended)
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      const auth = new google.auth.GoogleAuth({
-        keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-        scopes: ['https://www.googleapis.com/auth/gmail.modify'],
-        clientOptions: {
-          subject: this.config.GMAIL_DELEGATED_USER
-        }
-      });
-      const gmail = google.gmail({ version: 'v1', auth });
-      return gmail;
-    }
-
-    // Fallback to credentials from env
+    // Always use credentials from env vars (GOOGLE_PRIVATE_KEY and GOOGLE_SERVICE_ACCOUNT_EMAIL)
+    // Skip GOOGLE_APPLICATION_CREDENTIALS to avoid file-based auth issues in production
     let clientEmail = process.env.SERVICE_ACCOUNT_EMAIL || 
                        process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
                        this.config.SERVICE_ACCOUNT_EMAIL;
@@ -40,6 +28,10 @@ class Ingestor {
 
     if (privateKey && privateKey.includes('\\n')) {
       privateKey = privateKey.replace(/\\\\n/g, '\n');
+    }
+
+    if (!clientEmail || !privateKey) {
+      throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_PRIVATE_KEY');
     }
 
     const auth = new google.auth.GoogleAuth({
