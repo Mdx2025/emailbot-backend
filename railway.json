@@ -7,7 +7,7 @@
     }
   },
   "deploy": {
-    "startCommand": "node server.js",
+    "startCommand": "npm run server",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30
   }
