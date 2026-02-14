@@ -7,8 +7,10 @@
 
 const path = require('path');
 
-// Load environment variables from .env file
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+// Load environment variables from .env file (only in development)
+if (process.env.NODE_ENV !== 'production' && process.env.RAILWAY_ENVIRONMENT !== 'production') {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+}
 
 // Fix escaped newlines in private key (dotenv doesn't expand \n escapes)
 if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes('\\n')) {
