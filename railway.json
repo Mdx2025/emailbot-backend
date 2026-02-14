@@ -1,5 +1,6 @@
 {
   "$schema": "https://railway.app/schema.json",
+  "name": "emailbot-backend",
   "build": {
     "builder": "NIXPACKS",
     "github": {
@@ -7,7 +8,7 @@
     }
   },
   "deploy": {
-    "startCommand": "npm run server",
+    "startCommand": "npm run server:simple",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30
   }

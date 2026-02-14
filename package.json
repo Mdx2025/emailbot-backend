@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node cli.js",
     "server": "node server.js",
+    "server:simple": "node server-simple.js",
     "ingest": "node cli.js ingest",
     "approve": "node cli.js approve",
     "send": "node cli.js send pending",
