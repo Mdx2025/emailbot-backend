@@ -203,8 +203,19 @@ async function getMetrics() {
     formSubmissions,
     // Status thresholds
     unreadStatus: unreadEmails > 20 ? 'High' : unreadEmails > 10 ? 'Medium' : 'Low',
-    // Sparkline data (last 7 days)
-    sparklineUnread: Array.from({length: 7}, () => Math.floor(Math.random() * 15)),
+    // Sparkline data (last 7 days) - REAL data from drafts
+    sparklineUnread: (() => {
+      const now = new Date();
+      const result = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const count = drafts.filter(d => d.generatedAt && d.generatedAt.startsWith(dateStr)).length;
+        result.push(count);
+      }
+      return result;
+    })(),
   };
 }
 
@@ -324,7 +335,7 @@ app.get('/api/metrics', async (req, res) => {
   }
 });
 
-// GET /api/metrics/sparkline - NEW (for sparkline charts)
+// GET /api/metrics/sparkline - REAL data for sparkline charts
 app.get('/api/metrics/sparkline', (req, res) => {
   try {
     const { metric = 'unread_emails', days = 7 } = req.query;
@@ -338,11 +349,11 @@ app.get('/api/metrics/sparkline', (req, res) => {
       const dateStr = date.toISOString().split('T')[0];
       
       if (metric === 'unread_emails') {
-        // Count drafts created per day
+        // Count drafts generated per day
         const count = drafts.filter(d => 
           d.generatedAt && d.generatedAt.startsWith(dateStr)
         ).length;
-        result.push(count || Math.floor(Math.random() * 10)); // fallback for demo
+        result.push(count);
       } else if (metric === 'pending_drafts') {
         const count = drafts.filter(d => 
           d.status === 'pending_review' && 
@@ -350,8 +361,10 @@ app.get('/api/metrics/sparkline', (req, res) => {
         ).length;
         result.push(count);
       } else if (metric === 'leads') {
-        // Simulated leads data
-        result.push(Math.floor(Math.random() * 5));
+        // Real leads data would need Notion query - return 0 for now
+        result.push(0);
+      } else {
+        result.push(0);
       }
     }
     
@@ -553,6 +566,108 @@ app.get('/api/emails/unread', async (req, res) => {
   }
 });
 
+// GET /api/emails/:id - Get single email by ID
+app.get('/api/emails/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const Ingestor = require('./src/ingestor');
+    const ingestor = new Ingestor(emailbot.config, emailbot.logger);
+    const gmail = await ingestor.getGmailClient();
+    
+    // Fetch the specific email
+    const response = await gmail.users.messages.get({
+      userId: 'me',
+      id: id,
+      format: 'full'
+    });
+    
+    // Parse email data
+    const message = response.data;
+    const headers = message.payload.headers;
+    
+    const getHeader = (name) => {
+      const h = headers.find(h => h.name.toLowerCase() === name.toLowerCase());
+      return h ? h.value : '';
+    };
+    
+    // Get email body
+    let body = '';
+    if (message.payload.body.data) {
+      body = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
+    } else if (message.payload.parts) {
+      const part = message.payload.parts.find(p => p.mimeType === 'text/plain') || 
+                   message.payload.parts[0];
+      if (part && part.body && part.body.data) {
+        body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
+    }
+    
+    const email = {
+      id: message.id,
+      threadId: message.threadId,
+      from: {
+        name: getHeader('From').split('<')[0].trim(),
+        email: getHeader('From').match(/<(.+)>/)?.[1] || getHeader('From')
+      },
+      to: getHeader('To'),
+      subject: getHeader('Subject'),
+      body: body.substring(0, 5000), // Limit body size
+      bodyPreview: body.substring(0, 200),
+      receivedAt: getHeader('Date'),
+      status: message.labelIds?.includes('UNREAD') ? 'unread' : 'read',
+      labels: message.labelIds || []
+    };
+    
+    res.json({ email });
+  } catch (error) {
+    console.error('Failed to fetch email:', error.message);
+    res.status(500).json({ error: 'Failed to fetch email: ' + error.message });
+  }
+});
+
+// PATCH /api/emails/:id - Update email (status, labels, etc.)
+app.patch('/api/emails/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, addLabels, removeLabels } = req.body;
+    
+    const Ingestor = require('./src/ingestor');
+    const ingestor = new Ingestor(emailbot.config, emailbot.logger);
+    const gmail = await ingestor.getGmailClient();
+    
+    const updates = {};
+    
+    // Handle read/unread status
+    if (status === 'read' || status === 'unread') {
+      const labelId = status === 'read' ? 'INBOX' : 'UNREAD';
+      updates.addLabels = [labelId];
+    }
+    
+    // Handle custom labels
+    if (addLabels?.length > 0) {
+      updates.addLabels = [...(updates.addLabels || []), ...addLabels];
+    }
+    if (removeLabels?.length > 0) {
+      updates.removeLabels = removeLabels;
+    }
+    
+    // Apply updates
+    if (Object.keys(updates).length > 0) {
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: id,
+        addLabelIds: updates.addLabels || [],
+        removeLabelIds: updates.removeLabels || []
+      });
+    }
+    
+    res.json({ success: true, id, updates });
+  } catch (error) {
+    console.error('Failed to update email:', error.message);
+    res.status(500).json({ error: 'Failed to update email: ' + error.message });
+  }
+});
+
 // GET /api/leads/count - Count leads from Notion DB
 app.get('/api/leads/count', async (req, res) => {
   try {
@@ -585,6 +700,86 @@ app.get('/api/leads/count', async (req, res) => {
     res.json({ newLeads: 0, error: error.message });
   }
 });
+
+// GET /api/leads - List leads from Notion DB with pagination
+app.get('/api/leads', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, sort = 'desc' } = req.query;
+    const axios = require('axios');
+    const notionKey = emailbot.config.NOTION_KEY;
+    const leadsDbId = emailbot.config.NOTION_LEADS_DB_ID;
+    
+    if (!notionKey || !leadsDbId) {
+      return res.json({ leads: [], total: 0, page: parseInt(page), limit: parseInt(limit), error: 'Notion not configured' });
+    }
+    
+    const pageSize = parseInt(limit);
+    const startIndex = (parseInt(page) - 1) * pageSize;
+    
+    // Query Notion database with pagination
+    const response = await axios.post(
+      `https://api.notion.com/v1/databases/${leadsDbId}/query`,
+      {
+        page_size: 100, // Max per request
+        sorts: [{
+          property: 'received_at',
+          direction: sort === 'asc' ? 'ascending' : 'descending'
+        }]
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${notionKey}`,
+          'Content-Type': 'application/json',
+          'Notion-Version': '2022-06-28'
+        }
+      }
+    );
+    
+    // Transform Notion results to our format
+    const allLeads = response.data.results.map(item => {
+      const props = item.properties;
+      return {
+        id: item.id,
+        name: props.Name?.title?.[0]?.plain_text || 'Unknown',
+        email: props.Email?.email || props.email?.email || '',
+        phone: props.Phone?.phone_number || props.phone?.phone_number || '',
+        company: props.Company?.rich_text?.[0]?.plain_text || props.company?.rich_text?.[0]?.plain_text || '',
+        formType: props['Form Type']?.select?.name || props.form_type?.select?.name || 'website',
+        source: props.Source?.select?.name || props.source?.select?.name || 'direct',
+        score: props.Score?.number || props.score?.number || 0,
+        receivedAt: props['Received At']?.date?.start || props.received_at?.date?.start || item.created_time,
+        notionUrl: item.url,
+        tags: deriveTags(props)
+      };
+    });
+    
+    // Apply pagination
+    const paginatedLeads = allLeads.slice(startIndex, startIndex + pageSize);
+    
+    res.json({ 
+      leads: paginatedLeads, 
+      total: allLeads.length,
+      page: parseInt(page), 
+      limit: pageSize,
+      totalPages: Math.ceil(allLeads.length / pageSize)
+    });
+  } catch (error) {
+    console.error('Failed to fetch Notion leads:', error.message);
+    res.json({ leads: [], total: 0, error: error.message });
+  }
+});
+
+// Helper: Derive tags from lead properties
+function deriveTags(props) {
+  const tags = [];
+  if (props.Category?.select?.name) tags.push(props.Category.select.name);
+  if (props.Source?.select?.name) tags.push(props.Source.select.name);
+  // Add "High value" tag if score >= 80
+  if (props.Score?.number >= 80 || props.score?.number >= 80) tags.push('High value');
+  // Add "Urgent" tag if there's an urgent flag
+  if (props.Urgent?.checkbox || props.urgent?.checkbox) tags.push('Urgent');
+  return tags;
+}
 
 // Migration endpoint (for PostgreSQL setup)
 app.post('/api/migrate', async (req, res) => {
