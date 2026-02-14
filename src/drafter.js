@@ -183,14 +183,81 @@ Equipo MDX.so`;
    * Analyze draft characteristics
    */
   analyzeDraft(analysis) {
+    // Generate agent insight
+    const sentiment = this.analyzeSentiment(analysis.message);
+    const urgency = this.detectUrgency(analysis.message);
+    const recommendedAction = this.getRecommendedAction(analysis);
+    
+    const agentInsight = `Sentiment: ${sentiment}. ${urgency}. ${recommendedAction}`;
+    
     return {
       serviceCount: analysis.service ? 1 : 0,
       questionCount: (analysis.message?.match(/\?/g) || []).length,
       budgetMentioned: /presupuesto|precio|costo|price|budget/i.test(analysis.message || ''),
       timelineMentioned: /cuándo|cuando|timeline|deadline|urgente/i.test(analysis.message || ''),
       messageType: this.classifyMessageType(analysis),
-      specialRequests: []
+      specialRequests: [],
+      // Agent Insight fields
+      sentiment,
+      urgency,
+      recommendedAction,
+      agentInsight
     };
+  }
+
+  /**
+   * Analyze sentiment of the message
+   */
+  analyzeSentiment(message) {
+    const msg = (message || '').toLowerCase();
+    
+    // Positive indicators
+    const positive = /gracias|excelente|perfecto|me gusta|interesante|increíble|genial|bueno|mejor|interesado|encanta/i.test(msg);
+    // Negative indicators  
+    const negative = /no|no interested|no thank|nothing|not interested|sorry|unfortunately/i.test(msg);
+    
+    if (positive && !negative) return 'positive';
+    if (negative) return 'negative';
+    return 'neutral';
+  }
+
+  /**
+   * Detect urgency level
+   */
+  detectUrgency(message) {
+    const msg = (message || '').toLowerCase();
+    
+    if (/urgente|emergency|ahora|immediately|asap|urgent|deadline|hoy|para hoy/i.test(msg)) {
+      return 'High urgency';
+    }
+    if (/esta semana|this week|pronto|soon|para mañana|by tomorrow/i.test(msg)) {
+      return 'Medium urgency';
+    }
+    return 'Normal urgency';
+  }
+
+  /**
+   * Get recommended action based on analysis
+   */
+  getRecommendedAction(analysis) {
+    const msg = (analysis.message || '').toLowerCase();
+    
+    if (/(estudiante|estudio|universidad|escuela)/i.test(msg)) {
+      return 'Recommend: Redirect to free resources or educational materials';
+    }
+    if (/presupuesto|precio|costo/i.test(msg)) {
+      return 'Recommend: Send pricing information and package options';
+    }
+    if (/demo|muestra|example/i.test(msg)) {
+      return 'Recommend: Schedule demo call or send case studies';
+    }
+    if (!analysis.company || !analysis.service) {
+      return 'Recommend: Ask clarifying questions about company and needs';
+    }
+    if (msg.length < 50) {
+      return 'Recommend: Request more details about their requirements';
+    }
+    return 'Recommend: Send personalized proposal based on their inquiry';
   }
 
   /**
