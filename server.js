@@ -371,8 +371,8 @@ app.get('/api/emails', async (req, res) => {
       total: response.data.resultSizeEstimate || emails.length
     });
   } catch (error) {
-    console.error('Failed to list emails:', error.message);
-    res.status(500).json({ error: 'Failed to list emails: ' + error.message });
+    console.error('ERROR: Using NEW code - Failed to list emails:', error.message);
+    res.status(500).json({ error: 'ERROR: Using NEW code - Failed to list emails: ' + error.message });
   }
 });
 
