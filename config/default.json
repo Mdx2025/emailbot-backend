@@ -1,0 +1,17 @@
+{
+  "GMAIL_USER": "hello@mdx.so",
+  "PROJECT_ID": "gen-lang-client-0524106468",
+  "SERVICE_ACCOUNT_EMAIL": "clawd-550@gen-lang-client-0524106468.iam.gserviceaccount.com",
+  "GMAIL_CLIENT_ID": "",
+  "GMAIL_DELEGATED_USER": "hello@mdx.so",
+  "NOTION_KEY": "",
+  "NOTION_LEADS_DB_ID": "7b694cf4-c152-4d97-b4e4-80fa7faee322",
+  "NOTION_FOLLOWUPS_DB_ID": "7b694cf4-c152-4d97-b4e4-80fa7faee322",
+  "MODEL_ROUTER_URL": "http://localhost:8080",
+  "EMAIL_DRAFT_TASK_TIMEOUT": 300,
+  "draftsPath": "/home/clawd/.openclaw/workspace/emailbot/drafts",
+  "logsPath": "/home/clawd/.openclaw/workspace/emailbot/logs",
+  "statePath": "/home/clawd/.openclaw/workspace/emailbot/state",
+  "followupDays": [3, 5, 6],
+  "maxFollowups": 3
+}
