@@ -300,6 +300,11 @@ app.post('/api/drafts', async (req, res) => {
 });
 
 // GET /api/metrics
+// Debug endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Backend is working!', timestamp: new Date().toISOString() });
+});
+
 app.get('/api/metrics', async (req, res) => {
   try {
     console.log('[METRICS] Starting...');
