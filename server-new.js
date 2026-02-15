@@ -148,31 +148,41 @@ async function saveDraft(draft) {
   if (pgPool) {
     const generatedAt = draft.generatedAt || new Date().toISOString();
     const updatedAt = draft.updatedAt || null;
-    await pgQuery(
-      `INSERT INTO drafts (id, status, generated_at, updated_at, gmail_id, thread_id, email, company, draft)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (id) DO UPDATE SET
-         status = EXCLUDED.status,
-         generated_at = EXCLUDED.generated_at,
-         updated_at = EXCLUDED.updated_at,
-         gmail_id = EXCLUDED.gmail_id,
-         thread_id = EXCLUDED.thread_id,
-         email = EXCLUDED.email,
-         company = EXCLUDED.company,
-         draft = EXCLUDED.draft`,
-      [
-        draft.id,
-        draft.status || null,
-        generatedAt,
-        updatedAt,
-        draft.emailData?.gmailId || null,
-        draft.emailData?.threadId || null,
-        draft.client?.email || null,
-        draft.client?.company || null,
-        JSON.stringify(draft)
-      ]
-    );
-    return;
+    try {
+      await pgQuery(
+        `INSERT INTO drafts (id, status, generated_at, updated_at, gmail_id, thread_id, email, company, draft)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           generated_at = EXCLUDED.generated_at,
+           updated_at = EXCLUDED.updated_at,
+           gmail_id = EXCLUDED.gmail_id,
+           thread_id = EXCLUDED.thread_id,
+           email = EXCLUDED.email,
+           company = EXCLUDED.company,
+           draft = EXCLUDED.draft`,
+        [
+          draft.id,
+          draft.status || null,
+          generatedAt,
+          updatedAt,
+          draft.emailData?.gmailId || null,
+          draft.emailData?.threadId || null,
+          draft.client?.email || null,
+          draft.client?.company || null,
+          JSON.stringify(draft)
+        ]
+      );
+      return;
+    } catch (e) {
+      console.error('[saveDraft] Postgres write failed, falling back to file:', e.message);
+      addActivity('error', 'Failed to save draft to Postgres (fallback to file)', {
+        entityType: 'draft',
+        error: e.message,
+        draftId: draft.id,
+      });
+      // fall through to file write below
+    }
   }
 
   const filepath = path.join(DRAFTS_DIR, `${draft.id}.json`);
@@ -559,15 +569,33 @@ app.post('/api/drafts', async (req, res) => {
   }
 });
 
-// GET /api/metrics
 // Debug endpoint
-app.get('/api/test', (req, res) => {
-  res.json({ message: 'Backend is working!', timestamp: new Date().toISOString() });
-});
+app.get('/api/test', async (req, res) => {
+  // Minimal debug info so we can see what backend thinks about DB state
+  const out = {
+    message: 'Backend is working!',
+    timestamp: new Date().toISOString(),
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+  };
 
-// Test endpoint
-app.get('/api/test', (req, res) => {
-  res.json({ test: 'working', time: new Date().toISOString() });
+  if (pgPool) {
+    try {
+      const exists = await pgQuery(
+        `SELECT EXISTS (
+           SELECT 1
+             FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'drafts'
+         ) AS exists`
+      );
+      out.draftsTableExists = !!exists.rows?.[0]?.exists;
+    } catch (e) {
+      out.draftsTableExists = false;
+      out.dbError = e.message;
+    }
+  }
+
+  res.json(out);
 });
 
 app.get('/api/metrics', async (req, res) => {
