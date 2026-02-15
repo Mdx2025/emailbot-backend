@@ -116,18 +116,29 @@ Formato de respuesta:
   async callModelRouter(analysis) {
     const axios = require('axios');
     
-    const prompt = `
-Genera un email de respuesta profesional para:
+    const detectedLang = (analysis?.extractedData?.language || analysis?.language || 'en');
+    const languageHint = (String(detectedLang).toLowerCase() === 'es') ? 'Spanish' : 'English';
 
-Cliente: ${analysis.name || 'Cliente potencial'}
-Empresa: ${analysis.company || 'No especificada'}
-Servicio de interés: ${analysis.service || 'No especificado'}
-Mensaje original: ${analysis.message || 'Sin contenido'}
+    const prompt = `
+Generate a professional reply email.
+
+IMPORTANT: Write the reply in ${languageHint}, and in the same language as the customer's original message.
+
+Customer:
+
+Name: ${analysis.name || 'Prospect'}
+Company: ${analysis.company || 'Not specified'}
+Service of interest: ${analysis.service || 'Not specified'}
+Original message: ${analysis.message || 'No content'}
 
 ${this.systemPrompt}
 
 Responde SOLO con el contenido del email, sin asunto, sin firma elaborada.
-El email debe estar en español.
+
+REGLA DE IDIOMA (crítica):
+- Responde en el MISMO idioma del mensaje original del cliente.
+- Si el mensaje original está en inglés, responde en inglés.
+- Si es ambiguo, responde en inglés.
 `;
 
     try {
