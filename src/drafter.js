@@ -196,28 +196,17 @@ Response format:
     });
 
     const prompt = `
-Generate a professional reply email.
+Write a reply to the email below.
 
-CRITICAL LANGUAGE INSTRUCTION:
-- You MUST write the reply in ${languageHint}.
-- The customer's original message is in ${detectedLang === 'es' ? 'Spanish' : 'English'}.
-- Reply in the SAME language as the customer's original message.
-- If the customer wrote in English, reply in English.
-- If the customer wrote in Spanish, reply in Spanish.
-- This is mandatory - do not mix languages.
+Rules:
+- Reply in the SAME language as the original message.
+- Use only the context from the original message.
+- Keep it concise and helpful.
+- Do not mention policies, training, or that you are an AI.
+- Return ONLY the email body (no subject line).
 
-Customer:
-
-Name: ${analysis.name || 'Prospect'}
-Company: ${analysis.company || 'Not specified'}
-Service of interest: ${analysis.service || 'Not specified'}
-Original message: ${originalMessage || 'No content'}
-
-${this.systemPrompt}
-
-Return ONLY the email body (no subject line). Keep it concise and professional.
-
-REMINDER: Write the entire response in ${languageHint}.
+Original message:
+${originalMessage || 'No content'}
 `;
 
     try {
