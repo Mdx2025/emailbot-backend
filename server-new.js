@@ -397,7 +397,8 @@ app.post('/api/drafts', async (req, res) => {
     }
 
     if (action === 'edit') {
-      draft.status = 'needs_revision';
+      // Edited by user: should return to pending review for approval/send
+      draft.status = 'pending_review';
       draft.draft = newContent;
       draft.approval = {
         ...draft.approval,
@@ -489,7 +490,8 @@ app.patch('/api/drafts/:id/draft', (req, res) => {
     }
     
     draft.draft = draft_body;
-    draft.status = 'needs_revision';
+    // Saving an edit means it's ready for re-approval
+    draft.status = 'pending_review';
     draft.updatedAt = new Date().toISOString();
     
     saveDraft(draft);
