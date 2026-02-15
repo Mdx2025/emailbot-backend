@@ -50,6 +50,9 @@ class EmailBot {
       NOTION_LEADS_DB_ID: process.env.NOTION_LEADS_DB_ID,
       NOTION_FOLLOWUPS_DB_ID: process.env.NOTION_FOLLOWUPS_DB_ID || process.env.NOTION_LEADS_DB_ID, // Misma DB por defecto
       MODEL_ROUTER_URL: process.env.MODEL_ROUTER_URL || 'http://localhost:8080',
+      // Gemini (direct) - used by Drafter
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+      GEMINI_MODEL: process.env.GEMINI_MODEL,
       EMAIL_DRAFT_TASK_TIMEOUT: parseInt(process.env.EMAIL_DRAFT_TASK_TIMEOUT) || 300,
       // Railway-safe defaults: keep all writable data inside project /app/data
       draftsPath: process.env.DRAFTS_PATH || path.resolve(__dirname, '..', 'data', 'drafts'),

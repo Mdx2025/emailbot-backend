@@ -167,7 +167,11 @@ class Drafter {
     const axios = require('axios');
 
     const apiKey = this.config.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+    if (!apiKey) {
+      // Make the failure explicit in logs; UI otherwise looks like "nothing happened".
+      this.logger.error('Gemini not configured: missing GEMINI_API_KEY', { context, detectedLang });
+      throw new Error('GEMINI_API_KEY is not set');
+    }
 
     const model = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 
