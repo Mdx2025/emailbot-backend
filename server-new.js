@@ -74,14 +74,26 @@ function safeJsonParse(s) {
 app.use(cors());
 app.use(express.json());
 
+// Status normalization / compatibility layer
+function normalizeDraftStatus(status) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return null;
+  // Frontend sometimes uses 'pending'
+  if (s === 'pending') return 'pending_review';
+  // Allow some legacy aliases
+  if (s === 'in_review') return 'pending_review';
+  return s;
+}
+
 // Helper: Load drafts
 async function loadDrafts(status) {
   // Prefer Postgres when available
   if (pgPool) {
     const params = [];
     let where = '';
-    if (status) {
-      params.push(status);
+    const normalized = normalizeDraftStatus(status);
+    if (normalized) {
+      params.push(normalized);
       where = `WHERE status = $${params.length}`;
     }
 
@@ -129,6 +141,10 @@ async function getDraft(id) {
 
 // Helper: Save draft
 async function saveDraft(draft) {
+  if (draft && draft.status) {
+    draft.status = normalizeDraftStatus(draft.status);
+  }
+
   if (pgPool) {
     const generatedAt = draft.generatedAt || new Date().toISOString();
     const updatedAt = draft.updatedAt || null;
@@ -383,7 +399,7 @@ app.post('/api/admin/migrate-drafts-status', async (req, res) => {
 app.get('/api/drafts', async (req, res) => {
   try {
     const id = req.query.id;
-    const status = req.query.status || undefined;
+    const status = normalizeDraftStatus(req.query.status || undefined) || undefined;
     
     if (id) {
       const draft = await getDraft(id);
@@ -667,7 +683,7 @@ app.get('/api/dashboard', async (req, res) => {
   try {
     const metrics = await getMetrics();
     const activity = await getActivity(20);
-    const pending = await loadDrafts('pending_review');
+    const pending = await loadDrafts('pending');
     
     res.json({
       metrics,
