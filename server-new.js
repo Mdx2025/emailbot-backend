@@ -66,21 +66,46 @@ async function pgQuery(text, params = []) {
 
 const app = express();
 
+function safeJsonParse(s) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // Helper: Load drafts
-function loadDrafts(status) {
+async function loadDrafts(status) {
+  // Prefer Postgres when available
+  if (pgPool) {
+    const params = [];
+    let where = '';
+    if (status) {
+      params.push(status);
+      where = `WHERE status = $${params.length}`;
+    }
+
+    const { rows } = await pgQuery(
+      `SELECT draft
+         FROM drafts
+         ${where}
+        ORDER BY generated_at DESC`,
+      params
+    );
+
+    return rows.map(r => (typeof r.draft === 'string' ? JSON.parse(r.draft) : r.draft));
+  }
+
+  // File fallback
   if (!fs.existsSync(DRAFTS_DIR)) return [];
-  
+
   const files = fs.readdirSync(DRAFTS_DIR).filter(f => f.endsWith('.json'));
   const drafts = files.map(f => {
     try {
       return jsonfile.readFileSync(path.join(DRAFTS_DIR, f));
     } catch (e) { return null; }
   }).filter(Boolean);
-  
+
   if (status) {
     return drafts.filter(d => d.status === status);
   }
@@ -88,7 +113,13 @@ function loadDrafts(status) {
 }
 
 // Helper: Get single draft
-function getDraft(id) {
+async function getDraft(id) {
+  if (pgPool) {
+    const { rows } = await pgQuery('SELECT draft FROM drafts WHERE id = $1 LIMIT 1', [id]);
+    const d = rows?.[0]?.draft;
+    return d ? (typeof d === 'string' ? JSON.parse(d) : d) : null;
+  }
+
   const filepath = path.join(DRAFTS_DIR, `${id}.json`);
   if (fs.existsSync(filepath)) {
     return jsonfile.readFileSync(filepath);
@@ -97,7 +128,37 @@ function getDraft(id) {
 }
 
 // Helper: Save draft
-function saveDraft(draft) {
+async function saveDraft(draft) {
+  if (pgPool) {
+    const generatedAt = draft.generatedAt || new Date().toISOString();
+    const updatedAt = draft.updatedAt || null;
+    await pgQuery(
+      `INSERT INTO drafts (id, status, generated_at, updated_at, gmail_id, thread_id, email, company, draft)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         generated_at = EXCLUDED.generated_at,
+         updated_at = EXCLUDED.updated_at,
+         gmail_id = EXCLUDED.gmail_id,
+         thread_id = EXCLUDED.thread_id,
+         email = EXCLUDED.email,
+         company = EXCLUDED.company,
+         draft = EXCLUDED.draft`,
+      [
+        draft.id,
+        draft.status || null,
+        generatedAt,
+        updatedAt,
+        draft.emailData?.gmailId || null,
+        draft.emailData?.threadId || null,
+        draft.client?.email || null,
+        draft.client?.company || null,
+        JSON.stringify(draft)
+      ]
+    );
+    return;
+  }
+
   const filepath = path.join(DRAFTS_DIR, `${draft.id}.json`);
   jsonfile.writeFileSync(filepath, draft, { spaces: 2 });
 }
@@ -148,7 +209,7 @@ async function getActivity(limit = 50) {
         timestamp: r.timestamp,
         type: r.type,
         message: r.message,
-        details: typeof r.details === 'string' ? safeJsonParse(r.details) : (r.details || {})
+        details: (typeof r.details === 'string') ? (safeJsonParse(r.details) || {}) : (r.details || {})
       }));
     } catch (e) {
       // fall through to file
@@ -163,15 +224,11 @@ async function getActivity(limit = 50) {
   return lines.slice(-limit).reverse().map(line => safeJsonParse(line)).filter(Boolean);
 }
 
-function safeJsonParse(s) {
-  try { return JSON.parse(s); } catch { return null; }
-}
-
 // Helper: Get metrics
 async function getMetrics() {
   console.log('[getMetrics] Starting...');
   
-  const drafts = loadDrafts();
+  const drafts = await loadDrafts();
   const pending = drafts.filter(d => d.status === 'pending_review');
   const approved = drafts.filter(d => d.status === 'approved');
   const sent = drafts.filter(d => d.status === 'sent');
@@ -283,13 +340,13 @@ async function getMetrics() {
 // Admin: migrate drafts statuses
 // POST /api/admin/migrate-drafts-status
 // Body: { fromStatus: "needs_revision", toStatus: "pending_review", dryRun?: boolean }
-app.post('/api/admin/migrate-drafts-status', (req, res) => {
+app.post('/api/admin/migrate-drafts-status', async (req, res) => {
   try {
     const fromStatus = String(req.body?.fromStatus || 'needs_revision');
     const toStatus = String(req.body?.toStatus || 'pending_review');
     const dryRun = !!req.body?.dryRun;
 
-    const drafts = loadDrafts();
+    const drafts = await loadDrafts();
     const candidates = drafts.filter(d => String(d.status || '') === fromStatus);
 
     const migrated = [];
@@ -298,7 +355,7 @@ app.post('/api/admin/migrate-drafts-status', (req, res) => {
       if (!dryRun) {
         d.status = toStatus;
         d.updatedAt = new Date().toISOString();
-        saveDraft(d);
+        await saveDraft(d);
       }
     }
 
@@ -323,20 +380,20 @@ app.post('/api/admin/migrate-drafts-status', (req, res) => {
 });
 
 // GET /api/drafts - List drafts or get single by ?id=
-app.get('/api/drafts', (req, res) => {
+app.get('/api/drafts', async (req, res) => {
   try {
     const id = req.query.id;
     const status = req.query.status || undefined;
     
     if (id) {
-      const draft = getDraft(id);
+      const draft = await getDraft(id);
       if (!draft) {
         return res.status(404).json({ error: 'Draft not found' });
       }
       return res.json({ draft });
     }
     
-    const drafts = loadDrafts(status);
+    const drafts = await loadDrafts(status);
     res.json({ drafts });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch drafts' });
@@ -344,9 +401,9 @@ app.get('/api/drafts', (req, res) => {
 });
 
 // GET /api/drafts/:id - Get single draft
-app.get('/api/drafts/:id', (req, res) => {
+app.get('/api/drafts/:id', async (req, res) => {
   try {
-    const draft = getDraft(req.params.id);
+    const draft = await getDraft(req.params.id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
     }
@@ -365,7 +422,7 @@ app.post('/api/drafts/generate', async (req, res) => {
     if (!gmailId) return res.status(400).json({ error: 'gmailId is required' });
 
     // Dedupe: if draft already exists for this gmailId/threadId, return it
-    const existing = loadDrafts().find((d) =>
+    const existing = (await loadDrafts()).find((d) =>
       (d?.emailData?.gmailId && String(d.emailData.gmailId) === String(gmailId)) ||
       (threadId && d?.emailData?.threadId && String(d.emailData.threadId) === String(threadId))
     );
@@ -433,7 +490,7 @@ app.post('/api/drafts', async (req, res) => {
   try {
     const { action, draftId, reason, newContent, editorNotes } = req.body;
     
-    const draft = getDraft(draftId);
+    const draft = await getDraft(draftId);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
     }
@@ -449,7 +506,7 @@ app.post('/api/drafts', async (req, res) => {
       if (newContent) {
         draft.draft = newContent;
       }
-      saveDraft(draft);
+      await saveDraft(draft);
       addActivity('user', `Approved draft to ${draft.client?.email || 'unknown'}`, { draftId });
       return res.json({ success: true, draft });
     }
@@ -461,7 +518,7 @@ app.post('/api/drafts', async (req, res) => {
         approvedAt: new Date().toISOString(),
         rejectionReason: reason
       };
-      saveDraft(draft);
+      await saveDraft(draft);
       addActivity('user', `Rejected draft to ${draft.client?.email || 'unknown'}`, { draftId, reason });
       return res.json({ success: true, draft });
     }
@@ -475,7 +532,7 @@ app.post('/api/drafts', async (req, res) => {
         marceloEdit: newContent,
         editorNotes: editorNotes || 'Edited by Marcelo'
       };
-      saveDraft(draft);
+      await saveDraft(draft);
       addActivity('user', `Edited draft to ${draft.client?.email || 'unknown'}`, { draftId });
       return res.json({ success: true, draft });
     }
@@ -510,10 +567,10 @@ app.get('/api/metrics', async (req, res) => {
 });
 
 // GET /api/metrics/sparkline - REAL data for sparkline charts
-app.get('/api/metrics/sparkline', (req, res) => {
+app.get('/api/metrics/sparkline', async (req, res) => {
   try {
     const { metric = 'unread_emails', days = 7 } = req.query;
-    const drafts = loadDrafts();
+    const drafts = await loadDrafts();
     const now = new Date();
     const result = [];
     
@@ -549,12 +606,12 @@ app.get('/api/metrics/sparkline', (req, res) => {
 });
 
 // PATCH /api/drafts/:id/draft - Save edited draft without sending (NEW)
-app.patch('/api/drafts/:id/draft', (req, res) => {
+app.patch('/api/drafts/:id/draft', async (req, res) => {
   try {
     const { id } = req.params;
     const { draft_body } = req.body;
     
-    const draft = getDraft(id);
+    const draft = await getDraft(id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
     }
@@ -564,7 +621,7 @@ app.patch('/api/drafts/:id/draft', (req, res) => {
     draft.status = 'pending_review';
     draft.updatedAt = new Date().toISOString();
     
-    saveDraft(draft);
+    await saveDraft(draft);
     addActivity('user', `Saved draft edit for ${draft.client?.email || 'unknown'}`, { draftId: id });
     
     res.json({ success: true, draft });
@@ -579,7 +636,7 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
     const { id } = req.params;
     const { tone, instruction = 'rewrite' } = req.body;
     
-    const draft = getDraft(id);
+    const draft = await getDraft(id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
     }
@@ -593,7 +650,7 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
     draft.status = 'generating';
     draft.updatedAt = new Date().toISOString();
     
-    saveDraft(draft);
+    await saveDraft(draft);
     addActivity('agent', `Regenerating draft for ${draft.client?.email || 'unknown'}`, { draftId: id, instruction });
     
     // TODO: Trigger actual regeneration via Gemini (async)
@@ -610,7 +667,7 @@ app.get('/api/dashboard', async (req, res) => {
   try {
     const metrics = await getMetrics();
     const activity = await getActivity(20);
-    const pending = loadDrafts('pending_review');
+    const pending = await loadDrafts('pending_review');
     
     res.json({
       metrics,
@@ -1044,6 +1101,23 @@ app.post('/api/migrate', async (req, res) => {
         metadata JSONB DEFAULT '{}',
         created_at TIMESTAMPTZ DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS drafts (
+        id UUID PRIMARY KEY,
+        status TEXT,
+        generated_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ,
+        gmail_id TEXT,
+        thread_id TEXT,
+        email TEXT,
+        company TEXT,
+        draft JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
+      CREATE INDEX IF NOT EXISTS idx_drafts_generated_at ON drafts(generated_at);
+      CREATE INDEX IF NOT EXISTS idx_drafts_gmail_id ON drafts(gmail_id);
       
       CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
       CREATE INDEX IF NOT EXISTS idx_emails_draft_status ON emails(draft_status);
