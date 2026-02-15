@@ -41,8 +41,11 @@ class Drafter {
     });
 
     try {
+      // Pre-compute draft analysis (used for both prompting + draft metadata)
+      const draftAnalysis = this.analyzeDraft(analysis);
+
       // Call ModelRouter for GPT generation
-      const draftContent = await this.callModelRouter(analysis);
+      const draftContent = await this.callModelRouter({ ...analysis, messageType: draftAnalysis.messageType });
 
       // Create draft object
       const draft = {
@@ -62,7 +65,7 @@ class Drafter {
           originalMessage: analysis.message
         },
         draft: draftContent,
-        analysis: this.analyzeDraft(analysis),
+        analysis: draftAnalysis,
         status: 'pending_review',
         approval: null,
         followups: {
@@ -174,6 +177,11 @@ class Drafter {
       messagePreview: originalMessage.substring(0, 100)
     });
 
+    // If non-actionable, avoid calling the model entirely.
+    if (analysis.messageType === 'non_actionable') {
+      return this.generateFallbackDraft(analysis, detectedLang);
+    }
+
     const prompt = `
 Write a reply to the email below.
 
@@ -222,9 +230,21 @@ ${originalMessage || 'No content'}
    * Now language-aware!
    */
   generateFallbackDraft(analysis, language = 'en') {
+    // If it's a notification/system email, do not create a sales reply.
+    const msgType = analysis?.messageType || analysis?.draftAnalysis?.messageType;
+    if (msgType === 'non_actionable') {
+      return language === 'es'
+        ? `No action needed.
+
+(Automated notification detected — no reply will be sent.)`
+        : `No action needed.
+
+(Automated notification detected — no reply will be sent.)`;
+    }
+
     const company = analysis.company || (language === 'es' ? 'tu empresa' : 'your company');
     const service = analysis.service || (language === 'es' ? 'nuestros servicios' : 'our services');
-    
+
     if (language === 'es') {
       return `Hola,
 
@@ -239,7 +259,7 @@ Quedamos atentos.
 Saludos,
 Equipo MDX.so`;
     }
-    
+
     // English fallback
     return `Hello,
 
@@ -462,7 +482,18 @@ REMINDER: Write the entire response in ${languageHint}.
    */
   classifyMessageType(analysis) {
     const msg = (analysis.message || '').toLowerCase();
-    const company = (analysis.company || '').toLowerCase();
+    const subject = (analysis.subject || analysis.emailSubject || '').toLowerCase();
+    const fromEmail = (analysis.email || analysis.fromEmail || '').toLowerCase();
+
+    // Non-actionable notifications (receipts, billing, system alerts, scheduling, trials)
+    if (
+      /(no-reply|noreply|do-not-reply)/i.test(fromEmail) ||
+      /(receipt|invoice|funded|billing|payment|charged|usage limit|limits have increased|trial is ending|premium features|subscription|renewal)/i.test(subject) ||
+      /(calendly|meeting scheduled|invitee|google meet|zoom)/i.test(msg) ||
+      /(you have \d+ more days|upgrade now|workspace url|sign in)/i.test(msg)
+    ) {
+      return 'non_actionable';
+    }
 
     if (/(estudiante|estudio|universidad|escuela|tarea|homework|student)/i.test(msg)) {
       return 'student';
@@ -482,7 +513,7 @@ REMINDER: Write the entire response in ${languageHint}.
     if (/(alemán|francés|español|english|german|french)/i.test(msg) && !/español/i.test(msg)) {
       return 'other_language';
     }
-    
+
     return 'complete';
   }
 

@@ -798,7 +798,7 @@ app.get('/api/dashboard', async (req, res) => {
   try {
     const metrics = await getMetrics();
     const activity = await getActivity(20);
-    const pending = await loadDrafts('pending');
+    const pending = await loadDrafts('pending_review');
     
     res.json({
       metrics,
