@@ -770,9 +770,10 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
     // For core actions, override instruction with more explicit guidance.
     const normalizedInstruction = String(instruction || 'rewrite').toLowerCase();
     const instructionMap = {
-      shorten: 'shorten the email. keep it polite, remove fluff, keep 3 key questions.',
+      shorten: 'shorten the email. keep it polite, remove fluff, keep 2-3 key questions.',
       expand: 'expand slightly with clearer structure and additional helpful detail. keep it professional.',
-      rewrite: 'rewrite the email to be specific to the message; avoid generic templates; ask 3 targeted questions; propose a quick call.'
+      // Default behavior Marcelo wants: balanced length (not too long, not too short), natural/professional.
+      rewrite: 'rewrite the email to be specific to the message; improve clarity and professionalism; keep a balanced length (not too long, not too short); avoid generic templates; ask 2-3 targeted questions; propose a quick call if appropriate.'
     };
     const effectiveInstruction = instructionMap[normalizedInstruction] || instruction;
 
