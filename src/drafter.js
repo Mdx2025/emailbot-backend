@@ -189,8 +189,69 @@ Equipo MDX.so`;
       budgetMentioned: /presupuesto|precio|costo|price|budget/i.test(analysis.message || ''),
       timelineMentioned: /cuándo|cuando|timeline|deadline|urgente/i.test(analysis.message || ''),
       messageType: this.classifyMessageType(analysis),
-      specialRequests: []
+      specialRequests: [],
+      // NEW: Language detection
+      language: this.detectLanguage(analysis),
+      // NEW: SLA calculation
+      sla: this.calculateSLA(analysis)
     };
+  }
+
+  /**
+   * Detect message language (ES/EN)
+   */
+  detectLanguage(analysis) {
+    const msg = (analysis.message || '').toLowerCase();
+    const company = (analysis.company || '').toLowerCase();
+
+    // Check for Spanish indicators
+    if (/hola|gracias|buenos días|buenas tardes|buenas noches|estimado|buen día|saludos|atentamente/i.test(msg)) {
+      return 'ES';
+    }
+
+    // Check for Spanish company name
+    if (/s\.a\.|s\.l\.|sociedad|empresa|consultoría|servicios|talleres|asesor/i.test(company)) {
+      return 'ES';
+    }
+
+    // Check for English indicators
+    if (/hello|hi|hey|good morning|good afternoon|dear|regards|sincerely|best/i.test(msg)) {
+      return 'EN';
+    }
+
+    // Check for English company suffixes
+    if (/inc\.|llc|corp\.|ltd\.|pty\.|gmbh/i.test(company)) {
+      return 'EN';
+    }
+
+    // Default to English if no clear indicators
+    return 'EN';
+  }
+
+  /**
+   * Calculate SLA based on urgency
+   */
+  calculateSLA(analysis) {
+    const msg = (analysis.message || '').toLowerCase();
+    const subject = (analysis.subject || '').toLowerCase();
+
+    // Urgent keywords - respond within 1 hour
+    if (/urgent|emergency|asap|as soon as possible|inmediatamente|ya|ahora|inmediato|critical|crítico/i.test(msg + ' ' + subject)) {
+      return '1h';
+    }
+
+    // High priority - respond within 4 hours
+    if (/deadline|importante|important|prioridad|priority|necesito|need|requiero|require/i.test(msg + ' ' + subject)) {
+      return '4h';
+    }
+
+    // If it's a high-value lead or has budget mention - respond within 8 hours
+    if (analysis.leadScore > 80 || /presupuesto|precio|costo|budget|price/i.test(msg)) {
+      return '8h';
+    }
+
+    // Standard SLA - respond within 24 hours
+    return '24h';
   }
 
   /**
