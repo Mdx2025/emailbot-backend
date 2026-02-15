@@ -50,7 +50,7 @@ const ACTIVITY_LOG = path.join(STATE_DIR, 'activity.log');
 // Initialize EmailBot
 const emailbot = new EmailBot();
 
-// Optional PostgreSQL (recommended): store leads/emails/activity in DB
+// Optional PostgreSQL (required in production): store leads/emails/activity/drafts in DB
 let pgPool = null;
 if (process.env.DATABASE_URL) {
   pgPool = new Pool({
@@ -59,9 +59,30 @@ if (process.env.DATABASE_URL) {
   });
 }
 
+const REQUIRE_DB =
+  process.env.REQUIRE_DB === '1' ||
+  process.env.REQUIRE_DB === 'true' ||
+  process.env.REQUIRE_DB === 'yes' ||
+  process.env.NODE_ENV === 'production' ||
+  process.env.RAILWAY_ENVIRONMENT === 'production';
+
+if (REQUIRE_DB && !pgPool) {
+  console.error('[startup] DATABASE_URL is required in production (REQUIRE_DB enabled).');
+}
+
 async function pgQuery(text, params = []) {
   if (!pgPool) throw new Error('DATABASE_URL not configured');
   return pgPool.query(text, params);
+}
+
+function requireDbOr503(res) {
+  if (!pgPool) {
+    return res.status(503).json({
+      error: 'Database not configured',
+      message: 'DATABASE_URL is required for this deployment',
+    });
+  }
+  return null;
 }
 
 const app = express();
@@ -108,7 +129,8 @@ async function loadDrafts(status) {
     return rows.map(r => (typeof r.draft === 'string' ? JSON.parse(r.draft) : r.draft));
   }
 
-  // File fallback
+  // File fallback (dev-only). In production we do not allow filesystem persistence.
+  if (REQUIRE_DB) return [];
   if (!fs.existsSync(DRAFTS_DIR)) return [];
 
   const files = fs.readdirSync(DRAFTS_DIR).filter(f => f.endsWith('.json'));
@@ -132,6 +154,7 @@ async function getDraft(id) {
     return d ? (typeof d === 'string' ? JSON.parse(d) : d) : null;
   }
 
+  if (REQUIRE_DB) return null;
   const filepath = path.join(DRAFTS_DIR, `${id}.json`);
   if (fs.existsSync(filepath)) {
     return jsonfile.readFileSync(filepath);
@@ -175,16 +198,20 @@ async function saveDraft(draft) {
       );
       return;
     } catch (e) {
-      console.error('[saveDraft] Postgres write failed, falling back to file:', e.message);
-      addActivity('error', 'Failed to save draft to Postgres (fallback to file)', {
+      console.error('[saveDraft] Postgres write failed:', e.message);
+      addActivity('error', 'Failed to save draft to Postgres', {
         entityType: 'draft',
         error: e.message,
         draftId: draft.id,
       });
-      // fall through to file write below
+      if (REQUIRE_DB) throw e;
+      // dev-only: fall through to file write below
     }
   }
 
+  if (REQUIRE_DB) {
+    throw new Error('Draft persistence requires Postgres (DATABASE_URL)');
+  }
   const filepath = path.join(DRAFTS_DIR, `${draft.id}.json`);
   jsonfile.writeFileSync(filepath, draft, { spaces: 2 });
 }
@@ -198,8 +225,10 @@ function addActivity(type, message, details) {
     details
   };
 
-  // File-based activity log (legacy / fallback)
-  fs.appendFileSync(ACTIVITY_LOG, JSON.stringify(entry) + '\n');
+  // File-based activity log (legacy / fallback). Disabled in production.
+  if (!REQUIRE_DB) {
+    fs.appendFileSync(ACTIVITY_LOG, JSON.stringify(entry) + '\n');
+  }
 
   // Also persist in Postgres when available
   if (pgPool) {
@@ -242,7 +271,8 @@ async function getActivity(limit = 50) {
     }
   }
 
-  // File fallback
+  // File fallback (dev-only)
+  if (REQUIRE_DB) return [];
   if (!fs.existsSync(ACTIVITY_LOG)) return [];
   const raw = fs.readFileSync(ACTIVITY_LOG, 'utf-8').trim();
   if (!raw) return [];
@@ -408,6 +438,10 @@ app.post('/api/admin/migrate-drafts-status', async (req, res) => {
 // GET /api/drafts - List drafts or get single by ?id=
 app.get('/api/drafts', async (req, res) => {
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const id = req.query.id;
     const status = normalizeDraftStatus(req.query.status || undefined) || undefined;
     
@@ -429,6 +463,10 @@ app.get('/api/drafts', async (req, res) => {
 // GET /api/drafts/:id - Get single draft
 app.get('/api/drafts/:id', async (req, res) => {
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const draft = await getDraft(req.params.id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
@@ -444,6 +482,10 @@ app.get('/api/drafts/:id', async (req, res) => {
 app.post('/api/drafts/generate', async (req, res) => {
   const startedAt = Date.now();
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const { gmailId, threadId } = req.body || {};
     if (!gmailId) return res.status(400).json({ error: 'gmailId is required' });
 
@@ -517,6 +559,10 @@ app.post('/api/drafts/generate', async (req, res) => {
 // POST /api/drafts - Approve/Reject/Edit
 app.post('/api/drafts', async (req, res) => {
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const { action, draftId, reason, newContent, editorNotes } = req.body;
     
     const draft = await getDraft(draftId);
@@ -655,6 +701,10 @@ app.get('/api/metrics/sparkline', async (req, res) => {
 // PATCH /api/drafts/:id/draft - Save edited draft without sending (NEW)
 app.patch('/api/drafts/:id/draft', async (req, res) => {
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const { id } = req.params;
     const { draft_body } = req.body;
     
@@ -680,6 +730,10 @@ app.patch('/api/drafts/:id/draft', async (req, res) => {
 // POST /api/drafts/:id/regenerate - Regenerate with instructions (NEW)
 app.post('/api/drafts/:id/regenerate', async (req, res) => {
   try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
     const { id } = req.params;
     const { tone, instruction = 'rewrite' } = req.body;
     

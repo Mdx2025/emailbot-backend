@@ -88,7 +88,25 @@ CREATE TABLE IF NOT EXISTS activity (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Create drafts table (used by /api/drafts)
+CREATE TABLE IF NOT EXISTS drafts (
+  id UUID PRIMARY KEY,
+  status TEXT,
+  generated_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  gmail_id TEXT,
+  thread_id TEXT,
+  email TEXT,
+  company TEXT,
+  draft JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Create indexes
+CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
+CREATE INDEX IF NOT EXISTS idx_drafts_generated_at ON drafts(generated_at);
+CREATE INDEX IF NOT EXISTS idx_drafts_gmail_id ON drafts(gmail_id);
+
 CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
 CREATE INDEX IF NOT EXISTS idx_emails_draft_status ON emails(draft_status);
 CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at);
