@@ -134,6 +134,11 @@ class Ingestor {
         return null;
       }
 
+      // Use Gmail internalDate (server-side received timestamp) as source of truth.
+      // Do NOT trust the RFC822 "Date" header: it can be spoofed or malformed and break ordering in the UI.
+      const internalMs = msg?.data?.internalDate ? Number(msg.data.internalDate) : NaN;
+      const receivedAtISO = Number.isFinite(internalMs) ? new Date(internalMs).toISOString() : new Date().toISOString();
+
       const emailData = {
         gmailId: messageId,
         threadId: msg.data.threadId,
@@ -142,7 +147,7 @@ class Ingestor {
         date,
         body,
         ...leadData,
-        receivedAt: new Date().toISOString()
+        receivedAt: receivedAtISO
       };
 
       this.logger.info('Processed email', { 
