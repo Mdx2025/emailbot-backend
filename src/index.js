@@ -51,9 +51,10 @@ class EmailBot {
       NOTION_FOLLOWUPS_DB_ID: process.env.NOTION_FOLLOWUPS_DB_ID || process.env.NOTION_LEADS_DB_ID, // Misma DB por defecto
       MODEL_ROUTER_URL: process.env.MODEL_ROUTER_URL || 'http://localhost:8080',
       EMAIL_DRAFT_TASK_TIMEOUT: parseInt(process.env.EMAIL_DRAFT_TASK_TIMEOUT) || 300,
-      draftsPath: process.env.DRAFTS_PATH || path.resolve(__dirname, '..', '..', 'workspace', 'emailbot', 'drafts'),
-      logsPath: process.env.LOGS_PATH || path.resolve(__dirname, '..', '..', 'workspace', 'emailbot', 'logs'),
-      statePath: process.env.STATE_PATH || path.resolve(__dirname, '..', '..', 'workspace', 'emailbot', 'state')
+      // Railway-safe defaults: keep all writable data inside project /app/data
+      draftsPath: process.env.DRAFTS_PATH || path.resolve(__dirname, '..', 'data', 'drafts'),
+      logsPath: process.env.LOGS_PATH || path.resolve(__dirname, '..', 'data', 'logs'),
+      statePath: process.env.STATE_PATH || path.resolve(__dirname, '..', 'data', 'state')
     };
   }
 
