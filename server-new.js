@@ -252,6 +252,48 @@ async function getMetrics() {
 
 // ============ API ROUTES ============
 
+// Admin: migrate drafts statuses
+// POST /api/admin/migrate-drafts-status
+// Body: { fromStatus: "needs_revision", toStatus: "pending_review", dryRun?: boolean }
+app.post('/api/admin/migrate-drafts-status', (req, res) => {
+  try {
+    const fromStatus = String(req.body?.fromStatus || 'needs_revision');
+    const toStatus = String(req.body?.toStatus || 'pending_review');
+    const dryRun = !!req.body?.dryRun;
+
+    const drafts = loadDrafts();
+    const candidates = drafts.filter(d => String(d.status || '') === fromStatus);
+
+    const migrated = [];
+    for (const d of candidates) {
+      migrated.push({ id: d.id, oldStatus: d.status, newStatus: toStatus });
+      if (!dryRun) {
+        d.status = toStatus;
+        d.updatedAt = new Date().toISOString();
+        saveDraft(d);
+      }
+    }
+
+    addActivity('admin', `Migrated drafts status ${fromStatus} -> ${toStatus}`, {
+      fromStatus,
+      toStatus,
+      dryRun,
+      count: migrated.length,
+    });
+
+    return res.json({
+      success: true,
+      dryRun,
+      fromStatus,
+      toStatus,
+      count: migrated.length,
+      migrated,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Migration failed', message: error.message });
+  }
+});
+
 // GET /api/drafts - List drafts or get single by ?id=
 app.get('/api/drafts', (req, res) => {
   try {
