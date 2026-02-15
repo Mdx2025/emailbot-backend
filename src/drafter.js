@@ -198,8 +198,8 @@ class Drafter {
       || '';
 
     if (!text) {
-      this.logger.warn('Gemini returned empty content', { detectedLang, model, context });
-      return '';
+      this.logger.error('Gemini returned empty content', { detectedLang, model, context });
+      throw new Error('Gemini returned empty content');
     }
 
     return String(text).trim();
@@ -248,10 +248,12 @@ ${originalMessage || 'No content'}
         clientCompany: analysis.company,
         clientService: analysis.service
       });
-      return content || this.generateFallbackDraft(analysis, detectedLang);
+      return content;
     } catch (error) {
-      this.logger.warn('Gemini failed, using fallback', { error: error.message });
-      return this.generateFallbackDraft(analysis, detectedLang);
+      // Marcelo preference: do not generate any fallback/template-like drafts.
+      // If Gemini fails, surface an explicit error so the UI can prompt retry.
+      this.logger.error('Gemini failed (no fallback draft will be generated)', { error: error.message });
+      throw error;
     }
   }
 
@@ -370,19 +372,19 @@ Return ONLY the email body.`;
       return draft;
 
     } catch (error) {
-      this.logger.error('Draft regeneration failed', { 
+      // Marcelo preference: no fallback/template-like drafts.
+      // Keep the previous draft unchanged and surface error to caller.
+      this.logger.error('Draft regeneration failed (no fallback will be used)', { 
         error: error.message,
         draftId: draft.id 
       });
-      
-      // Fallback: use language-aware fallback
-      const detectedLang = this.detectLanguage(analysis.message);
-      draft.draft = this.generateFallbackDraft(analysis, detectedLang);
+
+      // Ensure we don't leave it stuck in generating.
       draft.status = 'pending_review';
       draft.updatedAt = new Date().toISOString();
       draft.regenerateInstruction = null;
-      
-      return draft;
+
+      throw error;
     }
   }
 
