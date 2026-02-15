@@ -165,19 +165,62 @@ class Ingestor {
    * Extract email body from Gmail payload
    */
   extractBody(message) {
-    if (message.payload.body?.data) {
-      return Buffer.from(message.payload.body.data, 'base64').toString('utf8');
-    }
-    
-    if (message.payload.parts) {
-      for (const part of message.payload.parts) {
-        if (part.mimeType === 'text/plain' && part.body?.data) {
-          return Buffer.from(part.body.data, 'base64').toString('utf8');
-        }
+    try {
+      // Gmail uses base64url sometimes; normalize
+      const decode = (data) => {
+        if (!data) return '';
+        const b64 = String(data).replace(/-/g, '+').replace(/_/g, '/');
+        return Buffer.from(b64, 'base64').toString('utf8');
+      };
+
+      // 1) Single-part body
+      if (message?.payload?.body?.data) {
+        const txt = decode(message.payload.body.data);
+        if (txt && txt.trim()) return txt;
       }
+
+      // 2) Walk MIME tree (pref: text/plain, fallback: text/html)
+      const parts = [];
+      const walk = (node) => {
+        if (!node) return;
+        if (node.parts && Array.isArray(node.parts)) node.parts.forEach(walk);
+        parts.push(node);
+      };
+      walk(message?.payload);
+
+      const pick = (mime) => parts.find((p) => p?.mimeType === mime && p?.body?.data);
+
+      const plain = pick('text/plain');
+      if (plain) {
+        const txt = decode(plain.body.data);
+        if (txt && txt.trim()) return txt;
+      }
+
+      const html = pick('text/html');
+      if (html) {
+        const raw = decode(html.body.data);
+        // ultra-light HTML -> text (good enough for context)
+        const txt = raw
+          .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<br\s*\/?\s*>/gi, '\n')
+          .replace(/<\/?p\b[^>]*>/gi, '\n')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        if (txt) return txt;
+      }
+
+      // 3) Last resort: Gmail snippet
+      const snip = message?.snippet;
+      if (snip && String(snip).trim()) return String(snip);
+
+      return '';
+    } catch {
+      return '';
     }
-    
-    return '';
   }
 
   /**
