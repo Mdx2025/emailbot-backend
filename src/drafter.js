@@ -133,12 +133,12 @@ Original message: ${analysis.message || 'No content'}
 
 ${this.systemPrompt}
 
-Responde SOLO con el contenido del email, sin asunto, sin firma elaborada.
+Return ONLY the email body (no subject line). Keep it concise and professional.
 
-REGLA DE IDIOMA (crítica):
-- Responde en el MISMO idioma del mensaje original del cliente.
-- Si el mensaje original está en inglés, responde en inglés.
-- Si es ambiguo, responde en inglés.
+CRITICAL LANGUAGE RULE:
+- Reply in the SAME language as the customer's original message.
+- If the original message is English, reply in English.
+- If ambiguous, default to English.
 `;
 
     try {
