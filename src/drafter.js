@@ -26,27 +26,29 @@ class Drafter {
   }
 
   getDefaultPrompt() {
+    // Language-agnostic system prompt - instructions in English to avoid language bias
+    // The actual language will be determined by the user prompt's language hint
     return `
-Eres un asistente de ventas profesional para MDX.so.
-Tu任务是 redactar respuestas a leads potenciales.
+You are a professional sales assistant for MDX.so.
+Your task is to write professional reply emails to potential leads.
 
-Reglas:
-1. PERSONALIZA cada respuesta con el nombre de la empresa
-2. NO uses nombres falsos de clientes
-3. NO uses placeholders como [Nombre]
-4. Responde de manera profesional pero cálida
-5. Mantén el email corto (3-4 oraciones máximo)
-6. Incluye llamada a la acción clara
-7. No incluyas firmas elaboradas
-8. Si el lead es vago, pregunta clarificadores
-9. Si menciona presupuesto, adapta la respuesta
-10. Si es estudiantes o proyectos escolares,declina educadamente
+Rules:
+1. PERSONALIZE each response with the company name
+2. DO NOT use fake client names
+3. DO NOT use placeholders like [Name]
+4. Respond professionally but warmly
+5. Keep the email short (3-4 sentences maximum)
+6. Include a clear call to action
+7. Do not include elaborate signatures
+8. If the lead is vague, ask clarifying questions
+9. If budget is mentioned, adapt the response
+10. If it's students or school projects, politely decline
 
-Formato de respuesta:
-- Saludo personalizado
-- 2-3 oraciones respondiendo su consulta
-- Pregunta clarificadora o siguiente paso
-- Despedida simple
+Response format:
+- Personalized greeting
+- 2-3 sentences addressing their inquiry
+- Clarifying question or next step
+- Simple closing
     `.trim();
   }
 
@@ -111,34 +113,111 @@ Formato de respuesta:
   }
 
   /**
+   * Detect language of text
+   * Returns 'es' for Spanish, 'en' for English (default)
+   */
+  detectLanguage(text) {
+    if (!text) return 'en';
+    
+    const lowerText = text.toLowerCase();
+    
+    // Spanish indicators - common words and patterns
+    const esWords = ['hola', 'gracias', 'por favor', 'consulta', 'mensaje', 'empresa', 'saludos', 
+                     'buenos', 'buenas', 'estoy', 'tengo', 'necesito', 'información', 'informacion',
+                     'precio', 'presupuesto', 'costo', 'cuánto', 'cuanto', 'cuando', 'cuándo',
+                     'puede', 'pueden', 'sería', 'seria', 'me gustaría', 'me gustaria', 'quisiera',
+                     'interesado', 'interesada', 'interes', 'interés', 'servicios', 'servicio',
+                     'desarrollo', 'diseño', 'diseñar', 'crear', 'proyecto', 'proyectos',
+                     'quisiera', 'gustaría', 'podría', 'han', 'han sido', 'fue', 'eran'];
+    
+    // English indicators
+    const enWords = ['hello', 'hi', 'hey', 'thanks', 'thank', 'please', 'inquiry', 'message', 'company',
+                     'regards', 'would', 'could', 'can you', 'how much', 'price', 'cost', 'budget',
+                     'i need', 'i want', 'i am', 'i have', 'i\'m', 'information', 'when', 'interested',
+                     'service', 'services', 'development', 'design', 'create', 'project', 'projects',
+                     'would like', 'could you', 'have been', 'was', 'were', 'been'];
+    
+    let esCount = 0;
+    let enCount = 0;
+
+    for (const word of esWords) {
+      if (lowerText.includes(word)) esCount++;
+    }
+
+    for (const word of enWords) {
+      if (lowerText.includes(word)) enCount++;
+    }
+
+    // Check for Spanish-specific patterns (articles, prepositions)
+    const esPatterns = [
+      /\b(el|la|los|las|un|una|unos|unas)\s+\w+/gi,  // Spanish articles with noun
+      /\b(de|del|en|es|son|por|para|con|sin|sobre)\s+/gi,  // Spanish prepositions
+      /\w+ción\b/gi,  // words ending in -ción
+      /\w+dad\b/gi,   // words ending in -dad
+      /\b(qué|cómo|dónde|cuál|quién)\b/gi,  // Spanish question words
+    ];
+    
+    const enPatterns = [
+      /\b(the|a|an)\s+\w+/gi,  // English articles with noun
+      /\b(of|in|to|for|with|without|about|from|on|at)\s+/gi,  // English prepositions
+      /\w+tion\b/gi,  // words ending in -tion
+      /\w+ness\b/gi,  // words ending in -ness
+      /\b(what|how|where|which|who|when|why)\b/gi,  // English question words
+    ];
+    
+    for (const pattern of esPatterns) {
+      const matches = lowerText.match(pattern);
+      if (matches) esCount += matches.length * 0.3;
+    }
+    
+    for (const pattern of enPatterns) {
+      const matches = lowerText.match(pattern);
+      if (matches) enCount += matches.length * 0.3;
+    }
+
+    return esCount > enCount ? 'es' : 'en';
+  }
+
+  /**
    * Call ModelRouter for AI generation
    */
   async callModelRouter(analysis) {
     const axios = require('axios');
     
-    const detectedLang = (analysis?.extractedData?.language || analysis?.language || 'en');
-    const languageHint = (String(detectedLang).toLowerCase() === 'es') ? 'Spanish' : 'English';
+    // Detect language from the original message
+    const originalMessage = analysis.message || '';
+    const detectedLang = this.detectLanguage(originalMessage);
+    const languageHint = detectedLang === 'es' ? 'Spanish' : 'English';
+
+    this.logger.info('Language detection for draft', {
+      detectedLang,
+      languageHint,
+      messagePreview: originalMessage.substring(0, 100)
+    });
 
     const prompt = `
 Generate a professional reply email.
 
-IMPORTANT: Write the reply in ${languageHint}, and in the same language as the customer's original message.
+CRITICAL LANGUAGE INSTRUCTION:
+- You MUST write the reply in ${languageHint}.
+- The customer's original message is in ${detectedLang === 'es' ? 'Spanish' : 'English'}.
+- Reply in the SAME language as the customer's original message.
+- If the customer wrote in English, reply in English.
+- If the customer wrote in Spanish, reply in Spanish.
+- This is mandatory - do not mix languages.
 
 Customer:
 
 Name: ${analysis.name || 'Prospect'}
 Company: ${analysis.company || 'Not specified'}
 Service of interest: ${analysis.service || 'Not specified'}
-Original message: ${analysis.message || 'No content'}
+Original message: ${originalMessage || 'No content'}
 
 ${this.systemPrompt}
 
 Return ONLY the email body (no subject line). Keep it concise and professional.
 
-CRITICAL LANGUAGE RULE:
-- Reply in the SAME language as the customer's original message.
-- If the original message is English, reply in English.
-- If ambiguous, default to English.
+REMINDER: Write the entire response in ${languageHint}.
 `;
 
     try {
@@ -150,7 +229,8 @@ CRITICAL LANGUAGE RULE:
           context: {
             clientEmail: analysis.email,
             clientCompany: analysis.company,
-            clientService: analysis.service
+            clientService: analysis.service,
+            detectedLanguage: detectedLang
           },
           timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000
         },
@@ -165,18 +245,20 @@ CRITICAL LANGUAGE RULE:
         error: error.message 
       });
 
-      return this.generateFallbackDraft(analysis);
+      return this.generateFallbackDraft(analysis, detectedLang);
     }
   }
 
   /**
    * Generate fallback draft when AI fails
+   * Now language-aware!
    */
-  generateFallbackDraft(analysis) {
-    const company = analysis.company || 'tu empresa';
-    const service = analysis.service || 'nuestros servicios';
+  generateFallbackDraft(analysis, language = 'en') {
+    const company = analysis.company || (language === 'es' ? 'tu empresa' : 'your company');
+    const service = analysis.service || (language === 'es' ? 'nuestros servicios' : 'our services');
     
-    return `Hola,
+    if (language === 'es') {
+      return `Hola,
 
 Gracias por tu interés en MDX.so y por comunicarte con nosotros.
 
@@ -188,6 +270,140 @@ Quedamos atentos.
 
 Saludos,
 Equipo MDX.so`;
+    }
+    
+    // English fallback
+    return `Hello,
+
+Thank you for your interest in MDX.so and for reaching out to us.
+
+We specialize in ${service} and would love to learn more details about your project for ${company}.
+
+Could you share more information about your specific needs and project scope?
+
+We look forward to hearing from you.
+
+Best regards,
+MDX.so Team`;
+  }
+
+  /**
+   * Regenerate an existing draft with optional instruction
+   * This is called by the regenerate endpoint
+   */
+  async regenerate(draft, instruction = 'rewrite') {
+    this.logger.info('Regenerating draft', { 
+      draftId: draft.id,
+      instruction 
+    });
+
+    // Build analysis object from existing draft
+    const analysis = {
+      email: draft.client?.email,
+      name: draft.client?.name,
+      company: draft.client?.company,
+      service: draft.client?.service,
+      message: draft.emailData?.originalMessage || draft.original,
+      gmailId: draft.emailData?.gmailId,
+      threadId: draft.emailData?.threadId,
+      subject: draft.emailData?.subject
+    };
+
+    try {
+      const axios = require('axios');
+      
+      // Detect language from the original message
+      const originalMessage = analysis.message || '';
+      const detectedLang = this.detectLanguage(originalMessage);
+      const languageHint = detectedLang === 'es' ? 'Spanish' : 'English';
+
+      this.logger.info('Regenerate: Language detection', {
+        draftId: draft.id,
+        detectedLang,
+        languageHint
+      });
+
+      // Build instruction-aware prompt
+      let instructionText = '';
+      if (instruction && instruction !== 'rewrite') {
+        instructionText = `\n\nAdditional instruction from user: ${instruction}`;
+      }
+
+      const prompt = `
+Regenerate the email reply with the following instruction: ${instruction}
+
+CRITICAL LANGUAGE INSTRUCTION:
+- You MUST write the reply in ${languageHint}.
+- The customer's original message is in ${detectedLang === 'es' ? 'Spanish' : 'English'}.
+- Reply in the SAME language as the customer's original message.
+- This is mandatory - do not switch languages.
+
+Customer:
+
+Name: ${analysis.name || 'Prospect'}
+Company: ${analysis.company || 'Not specified'}
+Service of interest: ${analysis.service || 'Not specified'}
+Original message: ${originalMessage || 'No content'}
+
+Previous draft (for reference):
+${draft.draft || 'No previous draft'}
+${instructionText}
+
+${this.systemPrompt}
+
+Return ONLY the email body (no subject line). Keep it concise and professional.
+
+REMINDER: Write the entire response in ${languageHint}.
+`;
+
+      const response = await axios.post(
+        `${this.config.MODEL_ROUTER_URL}/api/generate`,
+        {
+          task: 'EMAIL_DRAFT_TASK',
+          prompt,
+          context: {
+            clientEmail: analysis.email,
+            clientCompany: analysis.company,
+            clientService: analysis.service,
+            detectedLanguage: detectedLang,
+            instruction,
+            isRegeneration: true
+          },
+          timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000
+        },
+        { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
+      );
+
+      const newContent = response.data.response || response.data.content || response.data;
+      
+      // Update draft with new content
+      draft.draft = newContent;
+      draft.status = 'pending_review';
+      draft.updatedAt = new Date().toISOString();
+      draft.regenerateInstruction = null; // Clear the instruction
+      
+      // Store detected language in analysis
+      draft.analysis = draft.analysis || {};
+      draft.analysis.language = detectedLang;
+      draft.analysis.regeneratedAt = new Date().toISOString();
+
+      return draft;
+
+    } catch (error) {
+      this.logger.error('Draft regeneration failed', { 
+        error: error.message,
+        draftId: draft.id 
+      });
+      
+      // Fallback: use language-aware fallback
+      const detectedLang = this.detectLanguage(analysis.message);
+      draft.draft = this.generateFallbackDraft(analysis, detectedLang);
+      draft.status = 'pending_review';
+      draft.updatedAt = new Date().toISOString();
+      draft.regenerateInstruction = null;
+      
+      return draft;
+    }
   }
 
   /**
@@ -198,6 +414,7 @@ Equipo MDX.so`;
     const sentiment = this.analyzeSentiment(analysis.message);
     const urgency = this.detectUrgency(analysis.message);
     const recommendedAction = this.getRecommendedAction(analysis);
+    const language = this.detectLanguage(analysis.message);
     
     const agentInsight = `Sentiment: ${sentiment}. ${urgency}. ${recommendedAction}`;
     
@@ -208,6 +425,8 @@ Equipo MDX.so`;
       timelineMentioned: /cuándo|cuando|timeline|deadline|urgente/i.test(analysis.message || ''),
       messageType: this.classifyMessageType(analysis),
       specialRequests: [],
+      // Language detection
+      language,
       // Agent Insight fields
       sentiment,
       urgency,
@@ -223,9 +442,9 @@ Equipo MDX.so`;
     const msg = (message || '').toLowerCase();
     
     // Positive indicators
-    const positive = /gracias|excelente|perfecto|me gusta|interesante|increíble|genial|bueno|mejor|interesado|encanta/i.test(msg);
+    const positive = /gracias|excelente|perfecto|me gusta|interesante|increíble|genial|bueno|mejor|interesado|encanta|thank|great|excellent|interested|love/i.test(msg);
     // Negative indicators  
-    const negative = /no|no interested|no thank|nothing|not interested|sorry|unfortunately/i.test(msg);
+    const negative = /no interested|no thank|nothing|not interested|sorry|unfortunately/i.test(msg);
     
     if (positive && !negative) return 'positive';
     if (negative) return 'negative';
@@ -253,13 +472,13 @@ Equipo MDX.so`;
   getRecommendedAction(analysis) {
     const msg = (analysis.message || '').toLowerCase();
     
-    if (/(estudiante|estudio|universidad|escuela)/i.test(msg)) {
+    if (/(estudiante|estudio|universidad|escuela|student|school|university)/i.test(msg)) {
       return 'Recommend: Redirect to free resources or educational materials';
     }
-    if (/presupuesto|precio|costo/i.test(msg)) {
+    if (/presupuesto|precio|costo|budget|price/i.test(msg)) {
       return 'Recommend: Send pricing information and package options';
     }
-    if (/demo|muestra|example/i.test(msg)) {
+    if (/demo|muestra|example|sample/i.test(msg)) {
       return 'Recommend: Schedule demo call or send case studies';
     }
     if (!analysis.company || !analysis.service) {
@@ -278,7 +497,7 @@ Equipo MDX.so`;
     const msg = (analysis.message || '').toLowerCase();
     const company = (analysis.company || '').toLowerCase();
 
-    if (/(estudiante|estudio|universidad|escuela|tarea|homework)/i.test(msg)) {
+    if (/(estudiante|estudio|universidad|escuela|tarea|homework|student)/i.test(msg)) {
       return 'student';
     }
     if (/(muestra|example|sample|demo|prueba)/i.test(msg)) {

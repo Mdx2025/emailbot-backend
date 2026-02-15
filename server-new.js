@@ -727,39 +727,69 @@ app.patch('/api/drafts/:id/draft', async (req, res) => {
   }
 });
 
-// POST /api/drafts/:id/regenerate - Regenerate with instructions (NEW)
+// POST /api/drafts/:id/regenerate - Regenerate with instructions
 app.post('/api/drafts/:id/regenerate', async (req, res) => {
+  const startedAt = Date.now();
   try {
     if (REQUIRE_DB) {
       const early = requireDbOr503(res);
       if (early) return;
     }
     const { id } = req.params;
-    const { tone, instruction = 'rewrite' } = req.body;
+    const { tone, instruction = 'rewrite', language } = req.body;
     
     const draft = await getDraft(id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found' });
     }
-    
-    // Store regeneration instruction for the worker
-    draft.regenerateInstruction = instruction;
+
+    // Store tone if provided
     if (tone) {
       draft.analysis = draft.analysis || {};
       draft.analysis.tone = tone;
     }
+    
+    // Store explicit language preference if provided by frontend
+    if (language) {
+      draft.analysis = draft.analysis || {};
+      draft.analysis.language = language;
+    }
+    
+    // Mark as generating
     draft.status = 'generating';
+    draft.regenerateInstruction = instruction;
     draft.updatedAt = new Date().toISOString();
-    
     await saveDraft(draft);
+    
     addActivity('agent', `Regenerating draft for ${draft.client?.email || 'unknown'}`, { draftId: id, instruction });
+
+    // Perform actual regeneration using the Drafter module
+    const Drafter = require('./src/drafter');
+    const drafter = new Drafter(emailbot.config, emailbot.logger);
     
-    // TODO: Trigger actual regeneration via Gemini (async)
-    // For now, return success and let background worker handle it
+    const updatedDraft = await drafter.regenerate(draft, instruction);
+    await saveDraft(updatedDraft);
     
-    res.json({ success: true, draft, message: 'Regeneration queued' });
+    addActivity('agent', `Draft regenerated for ${updatedDraft.client?.email || 'unknown'}`, {
+      draftId: id,
+      instruction,
+      durationMs: Date.now() - startedAt,
+      language: updatedDraft.analysis?.language
+    });
+    
+    res.json({ 
+      success: true, 
+      draft: updatedDraft, 
+      message: 'Draft regenerated successfully',
+      detectedLanguage: updatedDraft.analysis?.language
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to queue regeneration' });
+    addActivity('error', 'Draft regeneration failed', {
+      entityType: 'draft',
+      error: error.message,
+      durationMs: Date.now() - startedAt
+    });
+    res.status(500).json({ error: 'Failed to regenerate draft', message: error.message });
   }
 });
 
