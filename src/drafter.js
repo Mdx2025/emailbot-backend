@@ -161,11 +161,50 @@ class Drafter {
   }
 
   /**
-   * Call ModelRouter for AI generation
+   * Call Gemini for AI generation (direct)
+   */
+  async callGemini(prompt, detectedLang, context = {}) {
+    const axios = require('axios');
+
+    const apiKey = this.config.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
+
+    const model = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+
+    // Safety: keep outputs stable and avoid creative drift
+    const generationConfig = {
+      temperature: 0.4,
+      topP: 0.95,
+      maxOutputTokens: 500
+    };
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await axios.post(
+      url,
+      {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig
+      },
+      { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
+    );
+
+    const text = response.data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('')
+      || response.data?.candidates?.[0]?.content?.parts?.[0]?.text
+      || '';
+
+    if (!text) {
+      this.logger.warn('Gemini returned empty content', { detectedLang, model, context });
+      return '';
+    }
+
+    return String(text).trim();
+  }
+
+  /**
+   * Generate draft (Gemini)
    */
   async callModelRouter(analysis) {
-    const axios = require('axios');
-    
     // Detect language from the original message
     const originalMessage = analysis.message || '';
     const detectedLang = this.detectLanguage(originalMessage);
@@ -200,30 +239,14 @@ ${originalMessage || 'No content'}
 `;
 
     try {
-      const response = await axios.post(
-        `${this.config.MODEL_ROUTER_URL}/api/generate`,
-        {
-          task: 'EMAIL_DRAFT_TASK',
-          prompt,
-          context: {
-            clientEmail: analysis.email,
-            clientCompany: analysis.company,
-            clientService: analysis.service,
-            detectedLanguage: detectedLang
-          },
-          timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000
-        },
-        { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
-      );
-
-      return response.data.response || response.data.content || response.data;
-
-    } catch (error) {
-      // Fallback to simple response if ModelRouter fails
-      this.logger.warn('ModelRouter failed, using fallback', { 
-        error: error.message 
+      const content = await this.callGemini(prompt, detectedLang, {
+        clientEmail: analysis.email,
+        clientCompany: analysis.company,
+        clientService: analysis.service
       });
-
+      return content || this.generateFallbackDraft(analysis, detectedLang);
+    } catch (error) {
+      this.logger.warn('Gemini failed, using fallback', { error: error.message });
       return this.generateFallbackDraft(analysis, detectedLang);
     }
   }
@@ -346,28 +369,15 @@ Return ONLY the email body (no subject line). Keep it concise and professional.
 REMINDER: Write the entire response in ${languageHint}.
 `;
 
-      const response = await axios.post(
-        `${this.config.MODEL_ROUTER_URL}/api/generate`,
-        {
-          task: 'EMAIL_DRAFT_TASK',
-          prompt,
-          context: {
-            clientEmail: analysis.email,
-            clientCompany: analysis.company,
-            clientService: analysis.service,
-            detectedLanguage: detectedLang,
-            instruction,
-            isRegeneration: true
-          },
-          timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000
-        },
-        { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
-      );
-
-      const newContent = response.data.response || response.data.content || response.data;
+      const newContent = await this.callGemini(prompt, detectedLang, {
+        draftId: draft.id,
+        clientEmail: analysis.email,
+        instruction,
+        isRegeneration: true
+      });
       
       // Update draft with new content
-      draft.draft = newContent;
+      draft.draft = newContent || this.generateFallbackDraft(analysis, detectedLang);
       draft.status = 'pending_review';
       draft.updatedAt = new Date().toISOString();
       draft.regenerateInstruction = null; // Clear the instruction
