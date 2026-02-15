@@ -26,30 +26,9 @@ class Drafter {
   }
 
   getDefaultPrompt() {
-    // Language-agnostic system prompt - instructions in English to avoid language bias
-    // The actual language will be determined by the user prompt's language hint
-    return `
-You are a professional sales assistant for MDX.so.
-Your task is to write professional reply emails to potential leads.
-
-Rules:
-1. PERSONALIZE each response with the company name
-2. DO NOT use fake client names
-3. DO NOT use placeholders like [Name]
-4. Respond professionally but warmly
-5. Keep the email short (3-4 sentences maximum)
-6. Include a clear call to action
-7. Do not include elaborate signatures
-8. If the lead is vague, ask clarifying questions
-9. If budget is mentioned, adapt the response
-10. If it's students or school projects, politely decline
-
-Response format:
-- Personalized greeting
-- 2-3 sentences addressing their inquiry
-- Clarifying question or next step
-- Simple closing
-    `.trim();
+    // Minimal system prompt: avoid “trained template” behavior.
+    // We rely on the user prompt + original message context.
+    return `You are an email assistant. Reply concisely and naturally.`;
   }
 
   /**
@@ -338,7 +317,6 @@ Previous draft (for reference):
 ${draft.draft || 'No previous draft'}
 ${instructionText}
 
-${this.systemPrompt}
 
 Return ONLY the email body (no subject line). Keep it concise and professional.
 
