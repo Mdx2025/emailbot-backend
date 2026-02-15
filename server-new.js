@@ -767,15 +767,12 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
     const Drafter = require('./src/drafter');
     const drafter = new Drafter(emailbot.config, emailbot.logger);
     
-    // For core actions, override instruction with more explicit guidance.
+    // Marcelo preference: do not force parameterized instructions.
+    // Keep instruction lightweight so Gemini judges context and writes naturally.
     const normalizedInstruction = String(instruction || 'rewrite').toLowerCase();
-    const instructionMap = {
-      shorten: 'shorten the email. keep it polite, remove fluff, keep 2-3 key questions.',
-      expand: 'expand slightly with clearer structure and additional helpful detail. keep it professional.',
-      // Default behavior Marcelo wants: balanced length (not too long, not too short), natural/professional.
-      rewrite: 'rewrite the email to be specific to the message; improve clarity and professionalism; keep a balanced length (not too long, not too short); avoid generic templates; ask 2-3 targeted questions; propose a quick call if appropriate.'
-    };
-    const effectiveInstruction = instructionMap[normalizedInstruction] || instruction;
+    const effectiveInstruction = (normalizedInstruction === 'shorten' || normalizedInstruction === 'expand' || normalizedInstruction === 'rewrite')
+      ? normalizedInstruction
+      : instruction;
 
     const updatedDraft = await drafter.regenerate(draft, effectiveInstruction);
     await saveDraft(updatedDraft);

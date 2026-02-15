@@ -325,42 +325,34 @@ Best regards,`;
         languageHint
       });
 
-      // Build instruction-aware prompt
-      let instructionText = '';
-      if (instruction && instruction !== 'rewrite') {
-        instructionText = `\n\nAdditional instruction from user: ${instruction}`;
-      }
+      // Minimal prompt: let Gemini judge content and write a human, contextual reply.
+      // We only pass a small nudge for shorten/expand; otherwise keep it neutral.
+      let modeLine = '';
+      const mode = String(instruction || 'rewrite').toLowerCase();
+      if (mode === 'shorten') modeLine = 'Make it shorter.';
+      else if (mode === 'expand') modeLine = 'Make it a bit longer.';
+      else modeLine = 'Rewrite naturally.';
 
-      const prompt = `
-Regenerate the email reply with the following instruction: ${instruction}
+      const prompt = `${this.systemPrompt}
 
-CRITICAL LANGUAGE INSTRUCTION:
-- You MUST write the reply in ${languageHint}.
-- The customer's original message is in ${detectedLang === 'es' ? 'Spanish' : 'English'}.
-- Reply in the SAME language as the customer's original message.
-- This is mandatory - do not switch languages.
+Write the reply in ${languageHint}.
 
-Customer:
-
-Name: ${analysis.name || 'Prospect'}
+Customer name: ${analysis.name || 'Prospect'}
 Company: ${analysis.company || 'Not specified'}
-Service of interest: ${analysis.service || 'Not specified'}
-Original message: ${originalMessage || 'No content'}
+Original message:
+${originalMessage || 'No content'}
 
-Previous draft (for reference):
+(For reference only) Previous draft:
 ${draft.draft || 'No previous draft'}
-${instructionText}
 
+Task: ${modeLine}
 
-Return ONLY the email body (no subject line). Keep it concise and professional.
-
-REMINDER: Write the entire response in ${languageHint}.
-`;
+Return ONLY the email body.`;
 
       const newContent = await this.callGemini(prompt, detectedLang, {
         draftId: draft.id,
         clientEmail: analysis.email,
-        instruction,
+        instruction: mode,
         isRegeneration: true
       });
       
