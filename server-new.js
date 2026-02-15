@@ -492,6 +492,9 @@ app.post('/api/drafts/generate', async (req, res) => {
     const analysis = await emailbot.analyze(emailData);
     const draft = await emailbot.generateDraft(analysis);
 
+    // Persist draft for approvals UI
+    await saveDraft(draft);
+
     addActivity('draft', 'Draft generated', {
       entityType: 'draft',
       gmailId,
