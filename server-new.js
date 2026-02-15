@@ -956,6 +956,17 @@ app.get('/api/emails', async (req, res) => {
         const headers = detail.data.payload.headers;
         const getHeader = (name) => headers.find(h => h.name === name)?.value || '';
         
+        const labels = detail.data.labelIds || [];
+        const unreadFlag = labels.includes('UNREAD');
+        // Map Gmail system categories to UI-friendly categories
+        let category = unreadFlag ? 'Unread' : 'Read';
+        if (labels.includes('CATEGORY_PERSONAL')) category = 'Personal';
+        else if (labels.includes('CATEGORY_PRIMARY')) category = 'Primary';
+        else if (labels.includes('CATEGORY_SOCIAL')) category = 'Social';
+        else if (labels.includes('CATEGORY_PROMOTIONS')) category = 'Promotions';
+        else if (labels.includes('CATEGORY_UPDATES')) category = 'Updates';
+        else if (labels.includes('CATEGORY_FORUMS')) category = 'Forums';
+
         emails.push({
           id: msg.id,
           threadId: detail.data.threadId,
@@ -963,9 +974,10 @@ app.get('/api/emails', async (req, res) => {
           to: getHeader('To'),
           subject: getHeader('Subject'),
           date: getHeader('Date'),
-          unread: detail.data.labelIds?.includes('UNREAD'),
+          unread: unreadFlag,
           snippet: detail.data.snippet,
-          labels: detail.data.labelIds || []
+          labels,
+          category
         });
       } catch (e) {
         console.warn('Failed to fetch email details:', e.message);
