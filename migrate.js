@@ -25,7 +25,7 @@ const schema = `
 
 -- Create emails table (unified with draft fields)
 CREATE TABLE IF NOT EXISTS emails (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   notion_id TEXT UNIQUE,
   gmail_id TEXT UNIQUE,
   thread_id TEXT,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS emails (
 
 -- Create leads table
 CREATE TABLE IF NOT EXISTS leads (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   notion_id TEXT UNIQUE,
   name TEXT NOT NULL,
   email TEXT NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS leads (
 
 -- Create activity table
 CREATE TABLE IF NOT EXISTS activity (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   type TEXT NOT NULL,
   description TEXT NOT NULL,
   entity_type TEXT,

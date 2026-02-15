@@ -30,6 +30,8 @@ const cors = require('cors');
 const fs = require('fs');
 const jsonfile = require('jsonfile');
 
+const { Pool } = require('pg');
+
 const EmailBot = require('./src/index');
 
 // Configuration
@@ -47,6 +49,21 @@ const ACTIVITY_LOG = path.join(STATE_DIR, 'activity.log');
 
 // Initialize EmailBot
 const emailbot = new EmailBot();
+
+// Optional PostgreSQL (recommended): store leads/emails/activity in DB
+let pgPool = null;
+if (process.env.DATABASE_URL) {
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+}
+
+async function pgQuery(text, params = []) {
+  if (!pgPool) throw new Error('DATABASE_URL not configured');
+  return pgPool.query(text, params);
+}
+
 const app = express();
 
 // Middleware
@@ -93,7 +110,26 @@ function addActivity(type, message, details) {
     message,
     details
   };
+
+  // File-based activity log (legacy / fallback)
   fs.appendFileSync(ACTIVITY_LOG, JSON.stringify(entry) + '\n');
+
+  // Also persist in Postgres when available
+  if (pgPool) {
+    pgQuery(
+      `INSERT INTO activity (type, description, entity_type, entity_id, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        type,
+        message,
+        details?.entityType || null,
+        details?.entityId || details?.id || null,
+        details ? JSON.stringify(details) : JSON.stringify({})
+      ]
+    ).catch(() => {
+      // ignore activity write failures
+    });
+  }
 }
 
 // Helper: Get activity
@@ -133,28 +169,15 @@ async function getMetrics() {
     console.warn('Could not fetch unread emails:', e.message);
   }
   
-  // Fetch leads count from Notion
+  // Fetch leads count from Postgres
   let newLeads = 0;
   try {
-    const axios = require('axios');
-    const notionKey = emailbot.config.NOTION_KEY;
-    const leadsDbId = emailbot.config.NOTION_LEADS_DB_ID;
-    if (notionKey && leadsDbId) {
-      const response = await axios.post(
-        `https://api.notion.com/v1/databases/${leadsDbId}/query`,
-        {},
-        {
-          headers: {
-            'Authorization': `Bearer ${notionKey}`,
-            'Content-Type': 'application/json',
-            'Notion-Version': '2022-06-28'
-          }
-        }
-      );
-      newLeads = response.data.results.length;
+    if (pgPool) {
+      const { rows } = await pgQuery('SELECT COUNT(*)::int AS count FROM leads');
+      newLeads = rows?.[0]?.count ?? 0;
     }
   } catch (e) {
-    console.warn('Could not fetch Notion leads:', e.message);
+    console.warn('Could not fetch Postgres leads:', e.message);
   }
   
   // Enhanced metrics for dashboard (per audit requirements)
@@ -507,6 +530,47 @@ app.post('/api/forms/contact', async (req, res) => {
 app.post('/api/ingest', async (req, res) => {
   try {
     const result = await emailbot.ingest(req.body);
+
+    // Persist processed leads into Postgres when available
+    if (pgPool && result?.processed?.length) {
+      for (const lead of result.processed) {
+        const receivedAt = lead.receivedAt ? new Date(lead.receivedAt) : new Date();
+        const email = lead.email || '';
+        if (!email) continue;
+
+        // Best-effort dedupe: same email + received_at
+        await pgQuery(
+          `INSERT INTO leads (name, email, company, phone, form_type, source, score, status, notes, received_at, metadata)
+           SELECT $1,$2,$3,$4,$5,$6,$7,'new',NULL,$8,$9
+           WHERE NOT EXISTS (
+             SELECT 1 FROM leads WHERE email = $2 AND received_at = $8
+           )`,
+          [
+            lead.name || 'Unknown',
+            email,
+            lead.company || null,
+            lead.phone || null,
+            lead.service || lead.formType || null,
+            'gmail',
+            0,
+            receivedAt,
+            JSON.stringify({
+              gmailId: lead.gmailId,
+              threadId: lead.threadId,
+              subject: lead.subject,
+              from: lead.from,
+              raw: lead
+            })
+          ]
+        );
+      }
+
+      addActivity('ingest', `Ingested ${result.processed.length} lead(s) into Postgres`, {
+        entityType: 'lead',
+        count: result.processed.length
+      });
+    }
+
     res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ error: 'Ingestion failed: ' + error.message });
@@ -712,118 +776,59 @@ app.patch('/api/emails/:id', async (req, res) => {
   }
 });
 
-// GET /api/leads/count - Count leads from Notion DB
+// GET /api/leads/count - Count leads from Postgres
 app.get('/api/leads/count', async (req, res) => {
   try {
-    const axios = require('axios');
-    const notionKey = emailbot.config.NOTION_KEY;
-    const leadsDbId = emailbot.config.NOTION_LEADS_DB_ID;
-    
-    if (!notionKey || !leadsDbId) {
-      return res.json({ newLeads: 0, error: 'Notion not configured' });
+    if (!pgPool) {
+      return res.json({ totalLeads: 0, error: 'Postgres not configured (missing DATABASE_URL)' });
     }
-    
-    // Query Notion database to count items
-    const response = await axios.post(
-      `https://api.notion.com/v1/databases/${leadsDbId}/query`,
-      {},
-      {
-        headers: {
-          'Authorization': `Bearer ${notionKey}`,
-          'Content-Type': 'application/json',
-          'Notion-Version': '2022-06-28'
-        }
-      }
-    );
-    
-    const newLeads = response.data.results.length;
-    
-    res.json({ newLeads });
+
+    const { rows } = await pgQuery('SELECT COUNT(*)::int AS count FROM leads');
+    res.json({ totalLeads: rows?.[0]?.count ?? 0 });
   } catch (error) {
-    console.error('Failed to count Notion leads:', error.message);
-    res.json({ newLeads: 0, error: error.message });
+    console.error('Failed to count Postgres leads:', error.message);
+    res.json({ totalLeads: 0, error: error.message });
   }
 });
 
-// GET /api/leads - List leads from Notion DB with pagination
+// GET /api/leads - List leads from Postgres with pagination
 app.get('/api/leads', async (req, res) => {
   try {
     const { page = 1, limit = 20, sort = 'desc' } = req.query;
-    const axios = require('axios');
-    const notionKey = emailbot.config.NOTION_KEY;
-    const leadsDbId = emailbot.config.NOTION_LEADS_DB_ID;
-    
-    if (!notionKey || !leadsDbId) {
-      return res.json({ leads: [], total: 0, page: parseInt(page), limit: parseInt(limit), error: 'Notion not configured' });
+
+    if (!pgPool) {
+      return res.json({ leads: [], total: 0, page: parseInt(page), limit: parseInt(limit), error: 'Postgres not configured (missing DATABASE_URL)' });
     }
-    
-    const pageSize = parseInt(limit);
-    const startIndex = (parseInt(page) - 1) * pageSize;
-    
-    // Query Notion database with pagination
-    const response = await axios.post(
-      `https://api.notion.com/v1/databases/${leadsDbId}/query`,
-      {
-        page_size: 100, // Max per request
-        sorts: [{
-          property: 'received_at',
-          direction: sort === 'asc' ? 'ascending' : 'descending'
-        }]
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${notionKey}`,
-          'Content-Type': 'application/json',
-          'Notion-Version': '2022-06-28'
-        }
-      }
+
+    const pageSize = Math.min(parseInt(limit) || 20, 100);
+    const pageNum = parseInt(page) || 1;
+    const offset = (pageNum - 1) * pageSize;
+    const direction = (String(sort).toLowerCase() === 'asc') ? 'ASC' : 'DESC';
+
+    const totalRes = await pgQuery('SELECT COUNT(*)::int AS count FROM leads');
+    const total = totalRes.rows?.[0]?.count ?? 0;
+
+    const listRes = await pgQuery(
+      `SELECT id, name, email, phone, company, form_type AS "formType", source, score, status,
+              received_at AS "receivedAt", created_at AS "createdAt", metadata
+         FROM leads
+        ORDER BY received_at ${direction}
+        LIMIT $1 OFFSET $2`,
+      [pageSize, offset]
     );
-    
-    // Transform Notion results to our format
-    const allLeads = response.data.results.map(item => {
-      const props = item.properties;
-      return {
-        id: item.id,
-        name: props.Name?.title?.[0]?.plain_text || 'Unknown',
-        email: props.Email?.email || props.email?.email || '',
-        phone: props.Phone?.phone_number || props.phone?.phone_number || '',
-        company: props.Company?.rich_text?.[0]?.plain_text || props.company?.rich_text?.[0]?.plain_text || '',
-        formType: props['Form Type']?.select?.name || props.form_type?.select?.name || 'website',
-        source: props.Source?.select?.name || props.source?.select?.name || 'direct',
-        score: props.Score?.number || props.score?.number || 0,
-        receivedAt: props['Received At']?.date?.start || props.received_at?.date?.start || item.created_time,
-        notionUrl: item.url,
-        tags: deriveTags(props)
-      };
-    });
-    
-    // Apply pagination
-    const paginatedLeads = allLeads.slice(startIndex, startIndex + pageSize);
-    
-    res.json({ 
-      leads: paginatedLeads, 
-      total: allLeads.length,
-      page: parseInt(page), 
+
+    res.json({
+      leads: listRes.rows,
+      total,
+      page: pageNum,
       limit: pageSize,
-      totalPages: Math.ceil(allLeads.length / pageSize)
+      totalPages: Math.ceil(total / pageSize)
     });
   } catch (error) {
-    console.error('Failed to fetch Notion leads:', error.message);
+    console.error('Failed to fetch Postgres leads:', error.message);
     res.json({ leads: [], total: 0, error: error.message });
   }
 });
-
-// Helper: Derive tags from lead properties
-function deriveTags(props) {
-  const tags = [];
-  if (props.Category?.select?.name) tags.push(props.Category.select.name);
-  if (props.Source?.select?.name) tags.push(props.Source.select.name);
-  // Add "High value" tag if score >= 80
-  if (props.Score?.number >= 80 || props.score?.number >= 80) tags.push('High value');
-  // Add "Urgent" tag if there's an urgent flag
-  if (props.Urgent?.checkbox || props.urgent?.checkbox) tags.push('Urgent');
-  return tags;
-}
 
 // Migration endpoint (for PostgreSQL setup)
 app.post('/api/migrate', async (req, res) => {
@@ -838,7 +843,7 @@ app.post('/api/migrate', async (req, res) => {
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
       
       CREATE TABLE IF NOT EXISTS emails (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         notion_id TEXT UNIQUE,
         gmail_id TEXT UNIQUE,
         thread_id TEXT,
@@ -869,7 +874,7 @@ app.post('/api/migrate', async (req, res) => {
       );
       
       CREATE TABLE IF NOT EXISTS leads (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         notion_id TEXT UNIQUE,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
@@ -887,7 +892,7 @@ app.post('/api/migrate', async (req, res) => {
       );
       
       CREATE TABLE IF NOT EXISTS activity (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         type TEXT NOT NULL,
         description TEXT NOT NULL,
         entity_type TEXT,
