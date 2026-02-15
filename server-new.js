@@ -25,7 +25,7 @@ const jsonfile = require('jsonfile');
 const EmailBot = require('./src/index');
 
 // Configuration
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.PORT || process.env.API_PORT || 3001;
 // Data stored in api/emailbot/data/ directory ( Railway persistent )
 const DATA_DIR = path.join(__dirname, 'data');
 const STATE_DIR = process.env.STATE_PATH || path.join(DATA_DIR, 'state');
@@ -456,6 +456,42 @@ app.get('/api/activity', (req, res) => {
     res.json({ activity });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch activity' });
+  }
+});
+
+// POST /api/forms/contact - Receive contact form submissions
+app.post('/api/forms/contact', async (req, res) => {
+  try {
+    const { name, email, message, company = null, phone = null } = req.body || {};
+
+    if (!name || !email || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'name, email and message are required'
+      });
+    }
+
+    const submission = {
+      id: `form_${Date.now()}`,
+      name,
+      email,
+      company,
+      phone,
+      message,
+      source: 'contact_form',
+      receivedAt: new Date().toISOString()
+    };
+
+    addActivity('form_submission', `New contact form from ${email}`, {
+      name,
+      email,
+      company,
+      id: submission.id
+    });
+
+    return res.status(201).json({ success: true, submission });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'Failed to save form submission' });
   }
 });
 

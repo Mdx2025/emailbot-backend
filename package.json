@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node cli.js",
-    "server": "node server.js",
+    "server": "node server-new.js",
     "server:simple": "node server-simple.js",
     "migrate": "node migrate.js",
     "ingest": "node cli.js ingest",
