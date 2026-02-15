@@ -185,9 +185,12 @@ class Drafter {
     const prompt = `
 Write a reply to the email below.
 
-Rules:
+Hard rules:
 - Reply in the SAME language as the original message.
 - Use only the context from the original message.
+- Be specific: reference at least 2 concrete details from the message.
+- DO NOT use generic filler like "We specialize in our services".
+- If the message asks for a website, propose a next step and ask 3 targeted questions (scope/pages, features, timeline/budget).
 - Keep it concise and helpful.
 - Do not mention policies, training, or that you are an AI.
 - Return ONLY the email body (no subject line).

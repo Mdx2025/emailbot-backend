@@ -767,7 +767,16 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
     const Drafter = require('./src/drafter');
     const drafter = new Drafter(emailbot.config, emailbot.logger);
     
-    const updatedDraft = await drafter.regenerate(draft, instruction);
+    // For core actions, override instruction with more explicit guidance.
+    const normalizedInstruction = String(instruction || 'rewrite').toLowerCase();
+    const instructionMap = {
+      shorten: 'shorten the email. keep it polite, remove fluff, keep 3 key questions.',
+      expand: 'expand slightly with clearer structure and additional helpful detail. keep it professional.',
+      rewrite: 'rewrite the email to be specific to the message; avoid generic templates; ask 3 targeted questions; propose a quick call.'
+    };
+    const effectiveInstruction = instructionMap[normalizedInstruction] || instruction;
+
+    const updatedDraft = await drafter.regenerate(draft, effectiveInstruction);
     await saveDraft(updatedDraft);
     
     addActivity('agent', `Draft regenerated for ${updatedDraft.client?.email || 'unknown'}`, {
