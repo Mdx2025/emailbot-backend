@@ -133,10 +133,38 @@ function addActivity(type, message, details) {
 }
 
 // Helper: Get activity
-function getActivity(limit = 50) {
+async function getActivity(limit = 50) {
+  // Prefer Postgres when available
+  if (pgPool) {
+    try {
+      const { rows } = await pgQuery(
+        `SELECT created_at AS timestamp, type, description AS message, metadata AS details
+         FROM activity
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      return rows.map(r => ({
+        timestamp: r.timestamp,
+        type: r.type,
+        message: r.message,
+        details: typeof r.details === 'string' ? safeJsonParse(r.details) : (r.details || {})
+      }));
+    } catch (e) {
+      // fall through to file
+    }
+  }
+
+  // File fallback
   if (!fs.existsSync(ACTIVITY_LOG)) return [];
-  const lines = fs.readFileSync(ACTIVITY_LOG, 'utf-8').trim().split('\n');
-  return lines.slice(-limit).reverse().map(line => JSON.parse(line));
+  const raw = fs.readFileSync(ACTIVITY_LOG, 'utf-8').trim();
+  if (!raw) return [];
+  const lines = raw.split('\n');
+  return lines.slice(-limit).reverse().map(line => safeJsonParse(line)).filter(Boolean);
+}
+
+function safeJsonParse(s) {
+  try { return JSON.parse(s); } catch { return null; }
 }
 
 // Helper: Get metrics
@@ -580,8 +608,8 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
 // GET /api/dashboard
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const metrics = getMetrics();
-    const activity = getActivity(20);
+    const metrics = await getMetrics();
+    const activity = await getActivity(20);
     const pending = loadDrafts('pending_review');
     
     res.json({
@@ -596,10 +624,10 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 // GET /api/activity
-app.get('/api/activity', (req, res) => {
+app.get('/api/activity', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const activity = getActivity(limit);
+    const activity = await getActivity(limit);
     res.json({ activity });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch activity' });
