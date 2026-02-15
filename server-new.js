@@ -12,6 +12,14 @@ if (process.env.NODE_ENV !== 'production' && process.env.RAILWAY_ENVIRONMENT !==
   require('dotenv').config({ path: path.join(__dirname, '.env') });
 }
 
+// Normalize Google auth env vars (Railway can have either naming)
+if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.SERVICE_ACCOUNT_EMAIL) {
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = process.env.SERVICE_ACCOUNT_EMAIL;
+}
+if (!process.env.SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
+  process.env.SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+}
+
 // Fix escaped newlines in private key (dotenv doesn't expand \n escapes)
 if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes('\\n')) {
   process.env.GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
