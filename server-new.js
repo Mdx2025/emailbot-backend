@@ -286,6 +286,78 @@ app.get('/api/drafts/:id', (req, res) => {
   }
 });
 
+// POST /api/drafts/generate - Generate a draft for ANY email (inbox/unread)
+// Body: { gmailId, threadId }
+app.post('/api/drafts/generate', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const { gmailId, threadId } = req.body || {};
+    if (!gmailId) return res.status(400).json({ error: 'gmailId is required' });
+
+    // Dedupe: if draft already exists for this gmailId/threadId, return it
+    const existing = loadDrafts().find((d) =>
+      (d?.emailData?.gmailId && String(d.emailData.gmailId) === String(gmailId)) ||
+      (threadId && d?.emailData?.threadId && String(d.emailData.threadId) === String(threadId))
+    );
+    if (existing) {
+      return res.json({ success: true, draft: existing, deduped: true });
+    }
+
+    addActivity('draft', 'Draft generation requested', { entityType: 'draft', gmailId, threadId });
+
+    // Fetch email from Gmail
+    const Ingestor = require('./src/ingestor');
+    const ingestor = new Ingestor(emailbot.config, emailbot.logger);
+    const gmail = await ingestor.getGmailClient();
+
+    const msg = await gmail.users.messages.get({ userId: 'me', id: gmailId, format: 'full' });
+    const headers = msg.data?.payload?.headers || [];
+    const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+    const fromRaw = headers.find((h) => h.name === 'From')?.value || '';
+    const date = headers.find((h) => h.name === 'Date')?.value || '';
+
+    const fromName = fromRaw.includes('<') ? fromRaw.split('<')[0].trim().replace(/"/g, '') : fromRaw;
+    const fromEmail = fromRaw.match(/<([^>]+)>/)?.[1] || '';
+
+    const body = ingestor.extractBody(msg.data) || '';
+
+    // Build minimal emailData for analyzer/drafter
+    const emailData = {
+      gmailId,
+      threadId: msg.data?.threadId || threadId,
+      subject,
+      from: fromName || fromRaw || 'Unknown',
+      email: fromEmail,
+      name: fromName || 'Unknown',
+      company: null,
+      service: null,
+      message: body,
+      date,
+      receivedAt: new Date().toISOString(),
+    };
+
+    const analysis = await emailbot.analyze(emailData);
+    const draft = await emailbot.generateDraft(analysis);
+
+    addActivity('draft', 'Draft generated', {
+      entityType: 'draft',
+      gmailId,
+      threadId: emailData.threadId,
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return res.json({ success: true, draft });
+  } catch (error) {
+    addActivity('error', 'Draft generation failed', {
+      entityType: 'draft',
+      error: error.message,
+      durationMs: Date.now() - startedAt,
+    });
+    return res.status(500).json({ error: 'Failed to generate draft', message: error.message });
+  }
+});
+
 // POST /api/drafts - Approve/Reject/Edit
 app.post('/api/drafts', async (req, res) => {
   try {
