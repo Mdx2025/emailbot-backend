@@ -58,28 +58,44 @@ class Ingestor {
    * Run ingestion pipeline
    */
   async run(options = {}) {
-    const { filter = 'subject:"Nuevo cliente potencial"', limit = 10 } = options;
-    
-    this.logger.info('Starting ingestion', { filter, limit });
+    // If you want *all* emails, call without filter.
+    // WARNING: ingesting everything can create a lot of leads and cost.
+    const {
+      filter = '',
+      limit = 50
+    } = options;
+
+    const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 500));
+
+    this.logger.info('Starting ingestion', { filter, limit: safeLimit });
 
     try {
       const gmail = await this.getGmailClient();
-      
-      // Search for matching emails
-      const response = await gmail.users.messages.list({
-        userId: 'me',
-        q: filter,
-        maxResults: limit
-      });
 
-      const messages = response.data.messages || [];
+      // Search for matching emails (or list all if filter is empty)
+      let pageToken = undefined;
+      const messages = [];
+
+      while (messages.length < safeLimit) {
+        const resp = await gmail.users.messages.list({
+          userId: 'me',
+          q: filter || undefined,
+          maxResults: Math.min(100, safeLimit - messages.length),
+          pageToken
+        });
+
+        const batch = resp.data.messages || [];
+        messages.push(...batch);
+
+        pageToken = resp.data.nextPageToken;
+        if (!pageToken || batch.length === 0) break;
+      }
+
       const processed = [];
 
       for (const msg of messages) {
         const email = await this.processEmail(gmail, msg.id);
-        if (email) {
-          processed.push(email);
-        }
+        if (email) processed.push(email);
       }
 
       this.logger.info('Ingestion complete', { processed: processed.length });
