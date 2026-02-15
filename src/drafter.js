@@ -268,37 +268,21 @@ ${originalMessage || 'No content'}
 (Automated notification detected — no reply will be sent.)`;
     }
 
-    const company = analysis.company || (language === 'es' ? 'tu empresa' : 'your company');
-    const service = analysis.service || (language === 'es' ? 'nuestros servicios' : 'our services');
-
+    // IMPORTANT: avoid any canned sales template. If we are here, AI generation failed.
+    // Return a minimal, context-neutral reply that won't look like a template.
     if (language === 'es') {
       return `Hola,
 
-Gracias por tu interés en MDX.so y por comunicarte con nosotros.
+Gracias por tu mensaje. ¿Podrías compartir un poco más de contexto o el objetivo principal para poder ayudarte mejor?
 
-Nos especializamos en ${service} y nos encantaría conocer más detalles sobre tu proyecto para ${company}.
-
-¿Podrías compartirnos más información sobre tus necesidades específicas y el alcance del proyecto?
-
-Quedamos atentos.
-
-Saludos,
-Equipo MDX.so`;
+Saludos,`;
     }
 
-    // English fallback
     return `Hello,
 
-Thank you for your interest in MDX.so and for reaching out to us.
+Thanks for your message. Could you share a bit more context or your main goal so I can help you properly?
 
-We specialize in ${service} and would love to learn more details about your project for ${company}.
-
-Could you share more information about your specific needs and project scope?
-
-We look forward to hearing from you.
-
-Best regards,
-MDX.so Team`;
+Best regards,`;
   }
 
   /**
