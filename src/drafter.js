@@ -194,13 +194,38 @@ class Drafter {
       { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
     );
 
-    const text = response.data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('')
-      || response.data?.candidates?.[0]?.content?.parts?.[0]?.text
+    const candidate = response.data?.candidates?.[0];
+    const text = candidate?.content?.parts?.map(p => p.text).join('')
+      || candidate?.content?.parts?.[0]?.text
       || '';
 
+    // Check for truncation or other finish reasons
+    const finishReason = candidate?.finishReason;
+    const safetyRatings = candidate?.safetyRatings;
+    
+    if (finishReason && finishReason !== 'STOP') {
+      this.logger.warn('Gemini finished with non-STOP reason', { 
+        finishReason, 
+        model, 
+        textLength: text.length,
+        safetyRatings,
+        context 
+      });
+    }
+
     if (!text) {
-      this.logger.error('Gemini returned empty content', { detectedLang, model, context });
+      this.logger.error('Gemini returned empty content', { detectedLang, model, context, finishReason });
       throw new Error('Gemini returned empty content');
+    }
+
+    // Warn if text seems truncated (ends mid-sentence or very short)
+    if (text.length < 200 || /[a-zA-Z]$/.test(text) && !text.endsWith('.')) {
+      this.logger.warn('Draft may be truncated', { 
+        textLength: text.length, 
+        endsWith: text.slice(-20),
+        finishReason,
+        model
+      });
     }
 
     return String(text).trim();
