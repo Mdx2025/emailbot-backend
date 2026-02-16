@@ -173,7 +173,7 @@ class Drafter {
       throw new Error('GEMINI_API_KEY is not set');
     }
 
-    const model = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    const model = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
 
     // Safety: keep outputs stable and avoid creative drift
     const generationConfig = {
