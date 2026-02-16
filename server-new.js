@@ -800,6 +800,65 @@ app.post('/api/drafts/:id/regenerate', async (req, res) => {
   }
 });
 
+// POST /api/drafts/:id/send - Send a single approved draft via Gmail
+// Body: { draft_body?: string } (optional override)
+app.post('/api/drafts/:id/send', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    if (REQUIRE_DB) {
+      const early = requireDbOr503(res);
+      if (early) return;
+    }
+
+    const { id } = req.params;
+    const { draft_body } = req.body || {};
+
+    const draft = await getDraft(id);
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    // Allow frontend to override body right before send (source of truth = UI editor)
+    if (typeof draft_body === 'string' && draft_body.trim()) {
+      draft.draft = draft_body;
+      draft.updatedAt = new Date().toISOString();
+    }
+
+    // Safety: only send approved drafts
+    if (String(draft.status || '').toLowerCase() !== 'approved') {
+      return res.status(400).json({
+        error: 'Draft must be approved before sending',
+        status: draft.status,
+      });
+    }
+
+    const Sender = require('./src/sender');
+    const sender = new Sender(emailbot.config, emailbot.logger);
+    const result = await sender.send(draft);
+
+    draft.status = 'sent';
+    draft.sentAt = new Date().toISOString();
+    draft.updatedAt = new Date().toISOString();
+    await saveDraft(draft);
+
+    addActivity('user', `Sent draft to ${draft.client?.email || 'unknown'}`, {
+      entityType: 'draft',
+      draftId: id,
+      durationMs: Date.now() - startedAt,
+      gmailMessageId: result?.id,
+    });
+
+    return res.json({ success: true, draft, gmail: result });
+  } catch (error) {
+    addActivity('error', 'Draft send failed', {
+      entityType: 'draft',
+      error: error.message,
+      durationMs: Date.now() - startedAt,
+    });
+    return res.status(500).json({ error: 'Failed to send draft', message: error.message });
+  }
+});
+
 // GET /api/dashboard
 app.get('/api/dashboard', async (req, res) => {
   try {
