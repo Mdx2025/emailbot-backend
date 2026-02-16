@@ -179,8 +179,8 @@ class Drafter {
     const generationConfig = {
       temperature: 0.4,
       topP: 0.95,
-      maxOutputTokens: 5000,
-      minOutputTokens: 2000
+      maxOutputTokens: 5000
+      // Note: minOutputTokens removed as it can cause 400 errors for short emails
     };
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
