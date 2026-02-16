@@ -185,14 +185,28 @@ class Drafter {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const response = await axios.post(
-      url,
-      {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig
-      },
-      { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        url,
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig
+        },
+        { timeout: this.config.EMAIL_DRAFT_TASK_TIMEOUT * 1000 }
+      );
+    } catch (axiosError) {
+      // Log detailed error information
+      const errorDetails = axiosError.response?.data || axiosError.message;
+      this.logger.error('Gemini API request failed', { 
+        error: errorDetails,
+        status: axiosError.response?.status,
+        model,
+        promptLength: prompt.length,
+        context 
+      });
+      throw new Error(`Gemini API error: ${JSON.stringify(errorDetails)}`);
+    }
 
     const candidate = response.data?.candidates?.[0];
     const text = candidate?.content?.parts?.map(p => p.text).join('')
