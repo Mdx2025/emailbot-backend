@@ -179,7 +179,8 @@ class Drafter {
     const generationConfig = {
       temperature: 0.4,
       topP: 0.95,
-      maxOutputTokens: 500
+      maxOutputTokens: 5000,
+      minOutputTokens: 2000
     };
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -206,6 +207,42 @@ class Drafter {
   }
 
   /**
+   * Format original message for better readability
+   * Parses contact form submissions and formats them nicely
+   */
+  formatOriginalMessage(message) {
+    if (!message) return 'No content';
+    
+    // Check if it's a contact form submission
+    if (message.includes('You have received a new message from your website contact form')) {
+      // Extract fields using regex
+      const fields = {
+        name: message.match(/Name:\s*([^\n]+)/)?.[1]?.trim(),
+        company: message.match(/Company:\s*([^\n]+)/)?.[1]?.trim(),
+        email: message.match(/Email:\s*([^\n]+)/)?.[1]?.trim(),
+        phone: message.match(/Phone:\s*([^\n]+)/)?.[1]?.trim(),
+        interested: message.match(/Interested in:\s*([^\n]+)/)?.[1]?.trim(),
+        message: message.match(/Message:\s*([\s\S]+?)(?:--|$)/)?.[1]?.trim()
+      };
+      
+      // Build formatted message
+      let formatted = '=== CONTACT FORM SUBMISSION ===\n\n';
+      if (fields.name) formatted += `👤 Name: ${fields.name}\n`;
+      if (fields.company) formatted += `🏢 Company: ${fields.company}\n`;
+      if (fields.email) formatted += `📧 Email: ${fields.email}\n`;
+      if (fields.phone) formatted += `📞 Phone: ${fields.phone}\n`;
+      if (fields.interested) formatted += `💼 Interested in: ${fields.interested}\n`;
+      if (fields.message) formatted += `\n📝 Message:\n${fields.message}\n`;
+      formatted += '\n===========================';
+      
+      return formatted;
+    }
+    
+    // For regular emails, just return as-is but trimmed
+    return message.trim();
+  }
+
+  /**
    * Generate draft (Gemini)
    */
   async callModelRouter(analysis) {
@@ -225,6 +262,9 @@ class Drafter {
       return this.generateFallbackDraft(analysis, detectedLang);
     }
 
+    // Format the message for better readability
+    const formattedMessage = this.formatOriginalMessage(originalMessage);
+
     const prompt = `
 Write a reply to the email below.
 
@@ -239,7 +279,7 @@ Hard rules:
 - Return ONLY the email body (no subject line).
 
 Original message:
-${originalMessage || 'No content'}
+${formattedMessage}
 `;
 
     try {
