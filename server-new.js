@@ -1143,6 +1143,85 @@ app.get('/api/emails/:id', async (req, res) => {
   }
 });
 
+// GET /api/threads/:id - Get thread messages by email ID
+app.get('/api/threads/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('[Thread API] Received request for ID:', id);
+    
+    const Ingestor = require('./src/ingestor');
+    const ingestor = new Ingestor(emailbot.config, emailbot.logger);
+    const gmail = await ingestor.getGmailClient();
+    
+    // Step 1: Always get the message first to find the REAL threadId
+    let actualThreadId;
+    try {
+      console.log('[Thread API] Getting message to extract threadId:', id);
+      const message = await gmail.users.messages.get({
+        userId: 'me',
+        id: id,
+        format: 'minimal',
+      });
+      actualThreadId = message.data.threadId;
+      console.log('[Thread API] Message found, threadId:', actualThreadId);
+    } catch (msgError) {
+      console.error('[Thread API] Message not found:', msgError.message);
+      return res.status(404).json({ error: 'Message not found', messages: [] });
+    }
+    
+    // Step 2: Get the thread using the actual threadId
+    let thread;
+    try {
+      console.log('[Thread API] Getting thread:', actualThreadId);
+      thread = await gmail.users.threads.get({
+        userId: 'me',
+        id: actualThreadId,
+      });
+      console.log('[Thread API] Thread found, messages:', thread.data.messages?.length);
+    } catch (threadError) {
+      console.error('[Thread API] Thread not found:', threadError.message);
+      return res.status(404).json({ error: 'Thread not found', messages: [] });
+    }
+    
+    // Step 3: Extract messages from thread
+    const messages = (thread.data.messages || []).map(msg => {
+      const headers = msg.payload?.headers || [];
+      const from = headers.find(h => h.name === 'From')?.value || 'Unknown';
+      const subject = headers.find(h => h.name === 'Subject')?.value || 'No subject';
+      const date = headers.find(h => h.name === 'Date')?.value || '';
+      
+      // Get message body
+      let body = '';
+      if (msg.payload?.parts) {
+        const textPart = msg.payload.parts.find(p => p.mimeType === 'text/plain');
+        const htmlPart = msg.payload.parts.find(p => p.mimeType === 'text/html');
+        const part = textPart || htmlPart;
+        if (part?.body?.data) {
+          body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+        }
+      } else if (msg.payload?.body?.data) {
+        body = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
+      }
+      
+      return {
+        id: msg.id,
+        threadId: msg.threadId,
+        from,
+        subject,
+        date,
+        snippet: msg.snippet,
+        body: body.substring(0, 500),
+      };
+    });
+    
+    console.log('[Thread API] Returning', messages.length, 'messages for thread:', actualThreadId);
+    res.json({ messages, threadId: actualThreadId });
+  } catch (error) {
+    console.error('[Thread API] Failed to fetch thread:', error.message);
+    res.status(500).json({ error: 'Failed to fetch thread', messages: [] });
+  }
+});
+
 // PATCH /api/emails/:id - Update email (status, labels, etc.)
 app.patch('/api/emails/:id', async (req, res) => {
   try {
