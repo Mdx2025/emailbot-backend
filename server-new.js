@@ -126,7 +126,15 @@ async function loadDrafts(status) {
       params
     );
 
-    return rows.map(r => (typeof r.draft === 'string' ? JSON.parse(r.draft) : r.draft));
+    return rows.map(r => {
+      if (typeof r.draft !== 'string') return r.draft;
+      try {
+        return JSON.parse(r.draft);
+      } catch (e) {
+        console.error('[loadDrafts] Failed to parse draft:', e.message, '| Draft content preview:', String(r.draft).substring(0, 100));
+        return null;
+      }
+    }).filter(Boolean);
   }
 
   // File fallback (dev-only). In production we do not allow filesystem persistence.
@@ -151,7 +159,14 @@ async function getDraft(id) {
   if (pgPool) {
     const { rows } = await pgQuery('SELECT draft FROM drafts WHERE id = $1 LIMIT 1', [id]);
     const d = rows?.[0]?.draft;
-    return d ? (typeof d === 'string' ? JSON.parse(d) : d) : null;
+    if (!d) return null;
+    if (typeof d !== 'string') return d;
+    try {
+      return JSON.parse(d);
+    } catch (e) {
+      console.error('[getDraft] Failed to parse draft:', e.message);
+      return null;
+    }
   }
 
   if (REQUIRE_DB) return null;
