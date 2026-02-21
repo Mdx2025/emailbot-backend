@@ -173,7 +173,10 @@ class Drafter {
       throw new Error('GEMINI_API_KEY is not set');
     }
 
-    const model = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+    // Validate model - fallback to working model if the configured one is invalid
+    const VALID_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
+    const configuredModel = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL;
+    const model = VALID_MODELS.includes(configuredModel) ? configuredModel : 'gemini-2.0-flash';
 
     // Safety: keep outputs stable and avoid creative drift
     const generationConfig = {
