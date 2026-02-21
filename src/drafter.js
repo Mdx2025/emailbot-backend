@@ -174,9 +174,9 @@ class Drafter {
     }
 
     // Validate model - fallback to working model if the configured one is invalid
-    const VALID_MODELS = ['gemini-2.0-flash-001', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
+    const VALID_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash'];
     const configuredModel = this.config.GEMINI_MODEL || process.env.GEMINI_MODEL;
-    const model = VALID_MODELS.includes(configuredModel) ? configuredModel : 'gemini-2.0-flash-001';
+    const model = VALID_MODELS.includes(configuredModel) ? configuredModel : 'gemini-flash-latest';
 
     // Safety: keep outputs stable and avoid creative drift
     const generationConfig = {
